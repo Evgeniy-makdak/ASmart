@@ -901,7 +901,10 @@ void BuildFVG(const double &high[], const double &low[], const datetime &time[],
   {
    int kept = 0;
    datetime right = time[0] + (datetime)(20 * PeriodSeconds(_Period));
-   for(int i = total - 3; i >= 1; i--)
+   // Свежие разрывы важнее старых: идём от текущих баров вглубь истории
+   // и оставляем не больше 80 последних FVG. Раньше цикл шёл от самых
+   // старых баров и обрезал всё после первых 80 зон.
+   for(int i = 2; i <= total - 2; i++)
      {
       // i+1 старше, i-1 новее, i — середина импульса
       int older = i + 1;
