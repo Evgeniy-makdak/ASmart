@@ -1,8 +1,8 @@
 //+------------------------------------------------------------------+
-//|                                              Money Hunter SMC.mq5 |
+//|                                              ASmart SMC.mq5 |
 //|  Copyright © 2026, Evgeniy Acteck                                  |
 //|  mailto:makdak23@mail.ru                                          |
-//|  Money Hunter SMC 1.04 — структура рынка SMC/ICT для MetaTrader 5 |
+//|  ASmart SMC 1.04 — структура рынка SMC/ICT для MetaTrader 5 |
 //|                                                                  |
 //|  Источник: Money Hunter Indicator – User Guide, только раздел MT5 |
 //|  (установка, обзор интерфейса MT4/MT5, параметры SMC).            |
@@ -11,20 +11,20 @@
 #property copyright "Copyright © 2026, Evgeniy Acteck"
 #property link      "mailto:makdak23@mail.ru"
 #property version   "1.04"
-#property description "Money Hunter SMC 1.04 — Market Structure (SMC/ICT)"
+#property description "ASmart SMC 1.04 — Market Structure (SMC/ICT)"
 #property description "BOS, ChoCh, IDM, ордер-блоки, FVG, HTF, дашборд, Premium/Discount."
 #property indicator_chart_window
 #property indicator_buffers 1
 #property indicator_plots   1
 #property indicator_type1   DRAW_NONE
-#property indicator_label1  "Money Hunter SMC"
+#property indicator_label1  "ASmart SMC"
 
 double g_dummy[];
 
 //------------------------------------------------------------------
 // Перечисления. Подписи enum — это значения в колонке «Значение» MT5.
-// п. 5 «Полное описание всех параметров», блок Money Hunter SMC,
-// и окно входных параметров MT5 «Money Hunter SMC 1.04».
+// п. 5 «Полное описание всех параметров», блок ASmart SMC,
+// и окно входных параметров MT5 «ASmart SMC 1.04».
 //------------------------------------------------------------------
 enum ENUM_MH_DRAW
   {
@@ -161,7 +161,7 @@ input bool            InpAlIPrevOB     = false;                      // I-Previo
 input bool            InpAlISMT        = false;                      // I-SMT
 input bool            InpAlEq          = false;                      // Crossing equilibrium of P/D zones
 
-#define MH_PREFIX "MHSMC_"
+#define MH_PREFIX "ASMC_"
 
 enum ENUM_MH_KIND
   {
@@ -344,7 +344,7 @@ void FireAlert(const string key, const string text)
   {
    if(AlreadyFired(key))
       return;
-   Alert("Money Hunter SMC: ", text);
+   Alert("ASmart SMC: ", text);
   }
 
 //+------------------------------------------------------------------+
@@ -1425,7 +1425,8 @@ void CheckAlerts()
 //+------------------------------------------------------------------+
 int OnInit()
   {
-   IndicatorSetString(INDICATOR_SHORTNAME, "Money Hunter SMC");
+   IndicatorSetString(INDICATOR_SHORTNAME, "ASmart SMC");
+   ObjectsDeleteAll(0, "MHSMC_");
    SetIndexBuffer(0, g_dummy, INDICATOR_DATA);
    PlotIndexSetDouble(0, PLOT_EMPTY_VALUE, EMPTY_VALUE);
    ArraySetAsSeries(g_dummy, true);
@@ -1433,12 +1434,12 @@ int OnInit()
    // п. 2 / п. 5: проверка входов
    if(InpHistBars < 0)
      {
-      Print("Money Hunter SMC: Length in bars не может быть отрицательной.");
+      Print("ASmart SMC: Length in bars не может быть отрицательной.");
       return INIT_PARAMETERS_INCORRECT;
      }
    if(InpHTF == PERIOD_CURRENT)
      {
-      Print("Money Hunter SMC: Base TF for HTF structure не должен быть PERIOD_CURRENT.");
+      Print("ASmart SMC: Base TF for HTF structure не должен быть PERIOD_CURRENT.");
       return INIT_PARAMETERS_INCORRECT;
      }
    g_ptAlpha = (int)MathRound((100 - MathMax(0, MathMin(100, InpPtTransp))) * 2.55);
@@ -1454,7 +1455,7 @@ int OnInit()
    if(g_bgAlpha > 255)
       g_bgAlpha = 255;
    if(InpPtTransp < 0 || InpPtTransp > 100)
-      Print("Money Hunter SMC: Structure Points Transparency вне 0..100, значение ограничено.");
+      Print("ASmart SMC: Structure Points Transparency вне 0..100, значение ограничено.");
 
    g_lastBar = 0;
    return INIT_SUCCEEDED;
@@ -1510,7 +1511,7 @@ void OnChartEvent(const int id, const long &lparam, const double &dparam, const 
   }
 
 //+------------------------------------------------------------------+
-// ⚠ УТОЧНЕНИЯ ПО PDF (Money Hunter SMC, только MT5):
+// ⚠ УТОЧНЕНИЯ ПО PDF (ASmart SMC, только MT5):
 // - Руководство описывает ИНДИКАТОРЫ, не советник. OrderSend / CTrade
 //   в MT5-части нет: сделки раздела 6 открывает трейдер вручную.
 // - Лицензионный ключ убран по запросу правообладателя: ни входа,

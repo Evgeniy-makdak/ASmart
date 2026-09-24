@@ -1,8 +1,8 @@
 //+------------------------------------------------------------------+
-//|                                            Money Hunter Tools.mq5 |
+//|                                            ASmart Tools.mq5 |
 //|  Copyright © 2026, Evgeniy Acteck                                  |
 //|  mailto:makdak23@mail.ru                                          |
-//|  Money Hunter Tools 1.04 — вторая часть Money Hunter для MT5.     |
+//|  ASmart Tools 1.04 — сигнальные свечи и точки входа для MT5.|
 //|  POI, ICM, Order Flow, FVG, SCOB, EQH/EQL, PDH/PDL, High Wick,    |
 //|  Smart Point, сессионные боксы.                                   |
 //|  Источник: User Guide, только MetaTrader 5.                       |
@@ -10,12 +10,12 @@
 #property copyright "Copyright © 2026, Evgeniy Acteck"
 #property link      "mailto:makdak23@mail.ru"
 #property version   "1.04"
-#property description "Money Hunter Tools 1.04 — POI, FVG, SCOB, Smart Point, Sessions"
+#property description "ASmart Tools 1.04 — POI, FVG, SCOB, Smart Point, Sessions"
 #property indicator_chart_window
 #property indicator_buffers 1
 #property indicator_plots   1
 #property indicator_type1   DRAW_NONE
-#property indicator_label1  "Money Hunter Tools"
+#property indicator_label1  "ASmart Tools"
 
 double g_dummy[];
 
@@ -111,7 +111,7 @@ input bool            InpWickClose  = true;                    // Use close cond
 input color           InpWickUp     = clrDeepSkyBlue;          // Large upper shadow color
 input color           InpWickDn     = clrMagenta;              // Large lower shadow color
 input string          SepSP         = "";                      // ---- Smart Point ----
-input bool            InpShowSP     = false;                   // Show Smart Point ?
+input bool            InpShowSP     = true;                    // Show Smart Point ?
 input ENUM_TL_PRESET  InpPreset     = TL_PRESET_DEFAULT;       // Preconfigured Input Preset
 input bool            InpLQD        = false;                   // Enable Filter LQD Sweep
 input int             InpBoxWidth   = 2;                       // Box Border Width (1-5)
@@ -121,6 +121,9 @@ input color           InpVelBear    = clrDarkOrchid;           // Velocity Beari
 input bool            InpUseSMC     = true;                    // SMC Indicator
 input color           InpSmcBull    = clrLimeGreen;            // SMC Bullish Color
 input color           InpSmcBear    = clrCrimson;              // SMC Bearish Color
+input string          SepSig        = "";                      // ---- Entry signal ----
+input bool            InpShowSignal = true;                    // Show entry signal ?
+input bool            InpAlertSignal= true;                    // Alert on candle close ?
 input string          SepA          = "";                      // ---- Session A ----
 input bool            InpShowA      = false;                   // Show Session A
 input string          InpTimeA      = "08:00-12:00";           // Session time (by broker time):
@@ -190,7 +193,7 @@ input bool            InpAlScobForm = false;                   // SCOB formed
 input bool            InpAlScobSide = false;                   // SCOB formed above/below ICM
 input bool            InpAlScobOn   = false;                   // SCOB formed on ICM
 
-#define TL_PREFIX "MHTOOLS_"
+#define TL_PREFIX "ATOOLS_"
 
 struct SSwing
   {
@@ -208,6 +211,28 @@ struct SFvg
    double   bot;
    bool     bull;
    bool     alive;
+  };
+
+struct SZone
+  {
+   int    shift;
+   double top;
+   double bot;
+   int    dir;
+   int    ext;
+  };
+
+struct SSig
+  {
+   int      shift;
+   int      dir;
+   int      pct;
+   double   entry;
+   double   sl;
+   double   tp1;
+   double   tp2;
+   datetime t;
+   datetime obT;
   };
 
 int      g_seq = 0;
@@ -344,7 +369,7 @@ void Fire(const string key, const string text)
   {
    if(AlreadyFired(key))
       return;
-   Alert("Money Hunter Tools: ", text);
+   Alert("ASmart Tools: ", text);
   }
 
 double ATRAt(const double &high[], const double &low[], const double &close[],
@@ -988,6 +1013,509 @@ void BuildSmart(const double &open[], const double &high[], const double &low[],
      }
   }
 
+int LastOppBar(const double &open[], const double &close[], const int fromShift, const int toShift, const bool wantBear)
+  {
+   int a = fromShift;
+   int b = toShift;
+   if(a < b)
+     {
+      int tmp = a;
+      a = b;
+      b = tmp;
+     }
+   int nbar = ArraySize(close);
+   if(b < 0)
+      b = 0;
+   if(a >= nbar)
+      a = nbar - 1;
+   if(a < b)
+      return -1;
+   for(int i = b; i <= a; i++)
+     {
+      if(wantBear && close[i] < open[i])
+         return i;
+      if(!wantBear && close[i] > open[i])
+         return i;
+     }
+   return b;
+  }
+
+void PushZone(SZone &zones[], int &n, const int shift, const double top, const double bot, const int dir, const int ext)
+  {
+   if(shift < 0 || top <= bot || dir == 0)
+      return;
+   ArrayResize(zones, n + 1);
+   zones[n].shift = shift;
+   zones[n].top = top;
+   zones[n].bot = bot;
+   zones[n].dir = dir;
+   zones[n].ext = ext;
+   n++;
+  }
+
+int CollectZones(const double &open[], const double &high[], const double &low[], const double &close[],
+                 const datetime &time[], const int total, SZone &zones[])
+  {
+   ArrayResize(zones, 0);
+   SSwing sw[];
+   int sn = CollectSwings(high, low, time, total, 8, sw);
+   int n = 0;
+   bool hasH = false;
+   bool hasL = false;
+   double lastH = 0.0;
+   double lastL = 0.0;
+   int lastHs = -1;
+   int lastLs = -1;
+   bool waitBull = false;
+   bool waitBear = false;
+   for(int i = 0; i < sn; i++)
+     {
+      if(sw[i].type == 1)
+        {
+         if(waitBear)
+           {
+            PushZone(zones, n, sw[i].shift, high[sw[i].shift], low[sw[i].shift], -1, 0);
+            waitBear = false;
+           }
+         if(hasH && sw[i].price > lastH && lastHs > 0)
+           {
+            int br = -1;
+            for(int k = lastHs - 1; k >= sw[i].shift && k >= 0; k--)
+              {
+               if(close[k] > lastH)
+                 {
+                  br = k;
+                  break;
+                 }
+              }
+            if(br >= 0)
+              {
+               int fromOb = (lastLs >= 0 ? lastLs : br + 1);
+               int ob = LastOppBar(open, close, fromOb, br, true);
+               if(ob >= 0)
+                  PushZone(zones, n, ob, high[ob], low[ob], 1, 1);
+               waitBull = true;
+               waitBear = false;
+              }
+           }
+         hasH = true;
+         lastH = sw[i].price;
+         lastHs = sw[i].shift;
+        }
+      else
+        {
+         if(waitBull)
+           {
+            PushZone(zones, n, sw[i].shift, high[sw[i].shift], low[sw[i].shift], 1, 0);
+            waitBull = false;
+           }
+         if(hasL && sw[i].price < lastL && lastLs > 0)
+           {
+            int br = -1;
+            for(int k = lastLs - 1; k >= sw[i].shift && k >= 0; k--)
+              {
+               if(close[k] < lastL)
+                 {
+                  br = k;
+                  break;
+                 }
+              }
+            if(br >= 0)
+              {
+               int fromOb = (lastHs >= 0 ? lastHs : br + 1);
+               int ob = LastOppBar(open, close, fromOb, br, false);
+               if(ob >= 0)
+                  PushZone(zones, n, ob, high[ob], low[ob], -1, 1);
+               waitBear = true;
+               waitBull = false;
+              }
+           }
+         hasL = true;
+         lastL = sw[i].price;
+         lastLs = sw[i].shift;
+        }
+     }
+   return n;
+  }
+
+int TrendAt(const double &high[], const double &low[], const datetime &time[], const int total, const int signalShift)
+  {
+   SSwing sw[];
+   int n = CollectSwings(high, low, time, total, 8, sw);
+   int trend = 0;
+   bool hasH = false;
+   bool hasL = false;
+   double lastH = 0.0;
+   double lastL = 0.0;
+   for(int i = 0; i < n; i++)
+     {
+      if(sw[i].shift < signalShift + 8)
+         break;
+      if(sw[i].type == 1)
+        {
+         if(hasH && sw[i].price > lastH)
+            trend = 1;
+         lastH = sw[i].price;
+         hasH = true;
+        }
+      else
+        {
+         if(hasL && sw[i].price < lastL)
+            trend = -1;
+         lastL = sw[i].price;
+         hasL = true;
+        }
+     }
+   return trend;
+  }
+
+bool HigherAllows(const int dir)
+  {
+   ENUM_TIMEFRAMES tfs[3];
+   tfs[0] = PERIOD_M15;
+   tfs[1] = PERIOD_H1;
+   tfs[2] = PERIOD_H4;
+   if(_Period == PERIOD_M1)       { tfs[0] = PERIOD_M5;  tfs[1] = PERIOD_M15; tfs[2] = PERIOD_H1; }
+   else if(_Period == PERIOD_M5)  { tfs[0] = PERIOD_M15; tfs[1] = PERIOD_H1;  tfs[2] = PERIOD_H4; }
+   else if(_Period == PERIOD_M15) { tfs[0] = PERIOD_H1;  tfs[1] = PERIOD_H4;  tfs[2] = PERIOD_D1; }
+   else if(_Period == PERIOD_M30) { tfs[0] = PERIOD_H1;  tfs[1] = PERIOD_H4;  tfs[2] = PERIOD_D1; }
+   else if(_Period == PERIOD_H1)  { tfs[0] = PERIOD_H4;  tfs[1] = PERIOD_D1;  tfs[2] = PERIOD_W1; }
+   else if(_Period == PERIOD_H4)  { tfs[0] = PERIOD_D1;  tfs[1] = PERIOD_W1;  tfs[2] = PERIOD_MN1; }
+   int against = 0;
+   int known = 0;
+   for(int t = 0; t < 3; t++)
+     {
+      if(tfs[t] == _Period)
+         continue;
+      double o[], h[], l[], c[];
+      long v[];
+      datetime tm[];
+      if(!LoadSeries(tfs[t], 40, o, h, l, c, v, tm))
+         continue;
+      int n = ArraySize(c);
+      if(n < 8)
+         continue;
+      known++;
+      if(dir > 0 && c[1] < c[6])
+         against++;
+      if(dir < 0 && c[1] > c[6])
+         against++;
+     }
+   if(known >= 2 && against == known)
+      return false;
+   return true;
+  }
+
+double FarTarget(const double &high[], const double &low[], const datetime &time[], const int total,
+                 const int signalShift, const int dir, const double entry, const double tp1, const double risk)
+  {
+   SSwing sw[];
+   int n = CollectSwings(high, low, time, total, 8, sw);
+   double cap = (dir > 0 ? entry + risk * 5.0 : entry - risk * 5.0);
+   double fallback = (dir > 0 ? entry + risk * 2.0 : entry - risk * 2.0);
+   double best = 0.0;
+   bool found = false;
+   for(int i = 0; i < n; i++)
+     {
+      if(dir > 0 && sw[i].type == 1 && sw[i].price > tp1 && sw[i].price <= cap)
+        {
+         if(!found || sw[i].price < best)
+           {
+            best = sw[i].price;
+            found = true;
+           }
+        }
+      if(dir < 0 && sw[i].type == -1 && sw[i].price < tp1 && sw[i].price >= cap)
+        {
+         if(!found || sw[i].price > best)
+           {
+            best = sw[i].price;
+            found = true;
+           }
+        }
+     }
+   if(!found)
+      return fallback;
+   return best;
+  }
+
+void DrawSigText(const datetime t, const double p, const string text, const color c, const bool above)
+  {
+   if(text == "" || t <= 0)
+      return;
+   string name = NextName("SIGT");
+   if(!ObjectCreate(0, name, OBJ_TEXT, 0, t, p))
+      return;
+   ObjectSetString(0, name, OBJPROP_TEXT, text);
+   ObjectSetString(0, name, OBJPROP_FONT, "Arial");
+   ObjectSetInteger(0, name, OBJPROP_FONTSIZE, FontPx(InpTextSize) + 1);
+   ObjectSetInteger(0, name, OBJPROP_COLOR, c);
+   ObjectSetInteger(0, name, OBJPROP_ANCHOR, above ? ANCHOR_LEFT_LOWER : ANCHOR_LEFT_UPPER);
+   ObjectSetInteger(0, name, OBJPROP_SELECTABLE, false);
+   ObjectSetInteger(0, name, OBJPROP_HIDDEN, true);
+  }
+
+void DrawArrow(const datetime t, const double p, const int code, const color c)
+  {
+   string name = NextName("SIGA");
+   if(!ObjectCreate(0, name, OBJ_ARROW, 0, t, p))
+      return;
+   ObjectSetInteger(0, name, OBJPROP_ARROWCODE, code);
+   ObjectSetInteger(0, name, OBJPROP_COLOR, c);
+   ObjectSetInteger(0, name, OBJPROP_WIDTH, 2);
+   ObjectSetInteger(0, name, OBJPROP_SELECTABLE, false);
+   ObjectSetInteger(0, name, OBJPROP_HIDDEN, true);
+   ObjectSetInteger(0, name, OBJPROP_BACK, false);
+  }
+
+void DrawLevel(const string tag, const datetime t1, const datetime t2, const double price, const color c, const string text)
+  {
+   DrawTrend(tag, t1, price, t2, price, c, 1, STYLE_DASH);
+   DrawSigText(t2, price, text, c, true);
+  }
+
+//+------------------------------------------------------------------+
+//| Сигнал входа по закрытой свече.                                   |
+//| Smart Point того же направления + тест OB-EXT или OB-IDM.        |
+//| Доля риска: 100 / 50 / 25 по таблице раздела 6. 75% в ней нет.   |
+//| TP1 = 1 к 1. Дальний TP2 — следующий свинг за TP1, иначе 2 к 1.  |
+//+------------------------------------------------------------------+
+void BuildSignals(const double &open[], const double &high[], const double &low[], const double &close[],
+                  const datetime &time[], const int total)
+  {
+   if(!InpShowSignal && !InpAlertSignal)
+      return;
+   SZone zones[];
+   int zn = CollectZones(open, high, low, close, time, total, zones);
+   if(zn < 1)
+      return;
+   SSig sigs[];
+   int sn = 0;
+   int usedShift[];
+   int usedDir[];
+   int usedTry[];
+   int usedAt[];
+   double usedSl[];
+   int used = 0;
+   ArrayResize(usedShift, 0);
+   ArrayResize(usedDir, 0);
+   ArrayResize(usedTry, 0);
+   ArrayResize(usedAt, 0);
+   ArrayResize(usedSl, 0);
+
+   for(int i = total - 20; i >= 1; i--)
+     {
+      int sdir = SmartDir(open, high, low, close, total, i);
+      if(sdir == 0)
+         continue;
+      int dir = (sdir > 0 ? 1 : -1);
+      int trend = TrendAt(high, low, time, total, i);
+      if(dir > 0 && trend < 0)
+         continue;
+      if(dir < 0 && trend > 0)
+         continue;
+      if(!HigherAllows(dir))
+         continue;
+      int pick = -1;
+      for(int z = 0; z < zn; z++)
+        {
+         if(zones[z].dir != dir || zones[z].shift <= i)
+            continue;
+         bool dead = false;
+         for(int k = zones[z].shift - 1; k > i; k--)
+           {
+            if(dir > 0 && close[k] < zones[z].bot)
+               dead = true;
+            if(dir < 0 && close[k] > zones[z].top)
+               dead = true;
+            if(dead)
+               break;
+           }
+         if(dead)
+            continue;
+         bool touch = (low[i] <= zones[z].top && high[i] >= zones[z].bot);
+         if(!touch)
+            continue;
+         if(dir > 0 && close[i] <= zones[z].bot)
+            continue;
+         if(dir < 0 && close[i] >= zones[z].top)
+            continue;
+         if(pick < 0 || zones[z].ext > zones[pick].ext || (zones[z].ext == zones[pick].ext && zones[z].shift < zones[pick].shift))
+            pick = z;
+        }
+      if(pick < 0)
+         continue;
+
+      int attempt = 1;
+      bool stopped = false;
+      double prevSl = 0.0;
+      int prevAt = i;
+      int slot = -1;
+      for(int u = 0; u < used; u++)
+        {
+         if(usedShift[u] == zones[pick].shift && usedDir[u] == dir)
+           {
+            slot = u;
+            attempt = usedTry[u] + 1;
+            prevSl = usedSl[u];
+            prevAt = usedAt[u];
+            break;
+           }
+        }
+      if(attempt > 2)
+         continue;
+      if(attempt == 2)
+        {
+         for(int k = prevAt - 1; k > i; k--)
+           {
+            if(dir > 0 && low[k] <= prevSl)
+               stopped = true;
+            if(dir < 0 && high[k] >= prevSl)
+               stopped = true;
+            if(stopped)
+               break;
+           }
+         bool sweep = false;
+         if(dir > 0 && low[i] < zones[pick].bot && close[i] > zones[pick].bot)
+            sweep = true;
+         if(dir < 0 && high[i] > zones[pick].top && close[i] < zones[pick].top)
+            sweep = true;
+         if(!stopped || !sweep)
+            continue;
+        }
+
+      double atr = ATRAt(high, low, close, total, i, 14);
+      double buf = 2.0 * _Point;
+      double entry = close[i];
+      double testEx = (dir > 0 ? low[i] : high[i]);
+      for(int k = i + 1; k < zones[pick].shift && k < i + 12; k++)
+        {
+         bool apart = (dir > 0 && low[k] > zones[pick].top) || (dir < 0 && high[k] < zones[pick].bot);
+         if(apart)
+            break;
+         if(dir > 0 && low[k] < testEx)
+            testEx = low[k];
+         if(dir < 0 && high[k] > testEx)
+            testEx = high[k];
+        }
+      double slStruct = (dir > 0 ? MathMin(zones[pick].bot, testEx) : MathMax(zones[pick].top, testEx));
+      slStruct += (dir > 0 ? -buf : buf);
+      double slCandle = (dir > 0 ? low[i] - buf : high[i] + buf);
+      double sl = slStruct;
+      double range = high[i] - low[i];
+      bool large = (atr > 0.0 && range >= atr * 1.5);
+      if(large)
+        {
+         bool candleOutside = (dir > 0 && slCandle <= zones[pick].bot) || (dir < 0 && slCandle >= zones[pick].top);
+         double dStruct = MathAbs(entry - slStruct);
+         double dCandle = MathAbs(entry - slCandle);
+         if(candleOutside && dStruct > dCandle * 1.5)
+            sl = slCandle;
+        }
+      if(dir > 0 && sl >= entry)
+         continue;
+      if(dir < 0 && sl <= entry)
+         continue;
+      double risk = MathAbs(entry - sl);
+      if(risk < 5.0 * _Point)
+         continue;
+      double tp1 = (dir > 0 ? entry + risk : entry - risk);
+      double tp2 = FarTarget(high, low, time, total, i, dir, entry, tp1, risk);
+      bool strong = (MathAbs(sdir) == 2);
+      int pct = 25;
+      if(strong && zones[pick].ext == 1)
+         pct = 100;
+      else if(strong || zones[pick].ext == 1)
+         pct = 50;
+
+      if(slot < 0)
+        {
+         ArrayResize(usedShift, used + 1);
+         ArrayResize(usedDir, used + 1);
+         ArrayResize(usedTry, used + 1);
+         ArrayResize(usedAt, used + 1);
+         ArrayResize(usedSl, used + 1);
+         usedShift[used] = zones[pick].shift;
+         usedDir[used] = dir;
+         usedTry[used] = 1;
+         usedAt[used] = i;
+         usedSl[used] = sl;
+         used++;
+        }
+      else
+        {
+         usedTry[slot] = attempt;
+         usedAt[slot] = i;
+         usedSl[slot] = sl;
+        }
+
+      ArrayResize(sigs, sn + 1);
+      sigs[sn].shift = i;
+      sigs[sn].dir = dir;
+      sigs[sn].pct = pct;
+      sigs[sn].entry = entry;
+      sigs[sn].sl = sl;
+      sigs[sn].tp1 = tp1;
+      sigs[sn].tp2 = tp2;
+      sigs[sn].t = time[i];
+      sigs[sn].obT = time[zones[pick].shift];
+      sn++;
+     }
+
+   int from = sn - 12;
+   if(from < 0)
+      from = 0;
+   for(int s = from; s < sn; s++)
+     {
+      if(!InpShowSignal)
+         break;
+      int dir = sigs[s].dir;
+      color col = (dir > 0 ? InpSmcBull : InpSmcBear);
+      double pad = (high[sigs[s].shift] - low[sigs[s].shift]) * 0.15;
+      if(pad < 5.0 * _Point)
+         pad = 5.0 * _Point;
+      double arrowP = (dir > 0 ? low[sigs[s].shift] - pad : high[sigs[s].shift] + pad);
+      DrawArrow(sigs[s].t, arrowP, (dir > 0 ? 233 : 234), col);
+      string side = (dir > 0 ? "BUY " : "SELL ");
+      string txt = side + IntegerToString(sigs[s].pct) + "%  SL " + DoubleToString(sigs[s].sl, _Digits)
+                   + "  TP1 " + DoubleToString(sigs[s].tp1, _Digits)
+                   + "  TP2 " + DoubleToString(sigs[s].tp2, _Digits);
+      DrawSigText(sigs[s].t, arrowP, txt, col, dir > 0);
+      datetime endT = time[0];
+      for(int k = sigs[s].shift - 1; k >= 0; k--)
+        {
+         bool hit = false;
+         if(dir > 0 && (low[k] <= sigs[s].sl || high[k] >= sigs[s].tp2))
+            hit = true;
+         if(dir < 0 && (high[k] >= sigs[s].sl || low[k] <= sigs[s].tp2))
+            hit = true;
+         if(hit)
+           {
+            endT = time[k];
+            break;
+           }
+        }
+      if(s < sn - 1 && endT == time[0])
+         endT = sigs[s].t + (datetime)(48 * PeriodSeconds(_Period));
+      if(s == sn - 1 && endT == time[0])
+         endT = time[0] + (datetime)(12 * PeriodSeconds(_Period));
+      DrawLevel("SL", sigs[s].t, endT, sigs[s].sl, clrFireBrick, "SL");
+      DrawLevel("TP", sigs[s].t, endT, sigs[s].tp1, clrDodgerBlue, "TP1");
+      DrawLevel("TP2", sigs[s].t, endT, sigs[s].tp2, clrDarkOrange, "TP2");
+     }
+
+   if(InpAlertSignal && sn > 0 && sigs[sn - 1].shift == 1)
+     {
+      SSig last = sigs[sn - 1];
+      string side = (last.dir > 0 ? "BUY" : "SELL");
+      string msg = side + " " + _Symbol + " " + IntegerToString(last.pct)
+                   + "%  SL " + DoubleToString(last.sl, _Digits)
+                   + "  TP1 " + DoubleToString(last.tp1, _Digits)
+                   + "  TP2 " + DoubleToString(last.tp2, _Digits);
+      Fire("SIG@" + IntegerToString((int)last.t), msg);
+     }
+  }
+
 bool ParseHHMM(const string spec, int &h1, int &m1, int &h2, int &m2)
   {
    int dash = StringFind(spec, "-");
@@ -1027,7 +1555,7 @@ void DrawSession(const string tag, const bool show, const string spec, const int
    int h1, m1, h2, m2;
    if(!ParseHHMM(spec, h1, m1, h2, m2))
      {
-      Print("Money Hunter Tools: не разобрано время сессии ", tag, " = ", spec);
+      Print("ASmart Tools: не разобрано время сессии ", tag, " = ", spec);
       return;
      }
    h1 += shiftH;
@@ -1207,6 +1735,7 @@ void Rebuild()
    BuildPD(time, total);
    BuildWick(open, high, low, close, time, total);
    BuildSmart(open, high, low, close, time, total, total - 2, 1);
+   BuildSignals(open, high, low, close, time, total);
 
    DrawSession("A", InpShowA, InpTimeA, InpShiftA, InpRangeA, InpDescOnA, InpDescA, InpMainA, InpAreaA, InpFillA,
                InpMaxA, InpTrendA, InpMeanA, InpVwapA, open, high, low, close, vol, time, total);
@@ -1251,19 +1780,20 @@ void DrawLiveSmart()
 
 int OnInit()
   {
-   IndicatorSetString(INDICATOR_SHORTNAME, "Money Hunter Tools");
+   IndicatorSetString(INDICATOR_SHORTNAME, "ASmart Tools");
+   ObjectsDeleteAll(0, "MHTOOLS_");
    SetIndexBuffer(0, g_dummy, INDICATOR_DATA);
    PlotIndexSetDouble(0, PLOT_EMPTY_VALUE, EMPTY_VALUE);
    ArraySetAsSeries(g_dummy, true);
 
    if(InpHistBars < 0)
      {
-      Print("Money Hunter Tools: History length не может быть отрицательной.");
+      Print("ASmart Tools: History length не может быть отрицательной.");
       return INIT_PARAMETERS_INCORRECT;
      }
    if(InpFvgAmount < 0)
      {
-      Print("Money Hunter Tools: Amount of extended FVGs не может быть отрицательным.");
+      Print("ASmart Tools: Amount of extended FVGs не может быть отрицательным.");
       return INIT_PARAMETERS_INCORRECT;
      }
    g_boxW = InpBoxWidth;
@@ -1272,14 +1802,14 @@ int OnInit()
    if(g_boxW > 5)
       g_boxW = 5;
    if(InpBoxWidth < 1 || InpBoxWidth > 5)
-      Print("Money Hunter Tools: Box Border Width вне 1..5, значение ограничено.");
+      Print("ASmart Tools: Box Border Width вне 1..5, значение ограничено.");
    g_wick = InpWickThr;
    if(g_wick < 0.3)
       g_wick = 0.3;
    if(g_wick > 0.5)
       g_wick = 0.5;
    if(InpWickThr < 0.3 || InpWickThr > 0.5)
-      Print("Money Hunter Tools: Shadow threshold вне 0.3..0.5, значение ограничено.");
+      Print("ASmart Tools: Shadow threshold вне 0.3..0.5, значение ограничено.");
    g_lastBar = 0;
    return INIT_SUCCEEDED;
   }
@@ -1342,8 +1872,8 @@ void OnChartEvent(const int id, const long &lparam, const double &dparam, const 
 // После стопа допускается один перезаход в той же зоне OB.
 // Рекомендуемые ТФ: крипто 1m–5m, фондовый и форекс 5m–15m.
 //+------------------------------------------------------------------+
-// ⚠ УТОЧНЕНИЯ ПО PDF (Money Hunter Tools, только MT5):
-// - Это второй индикатор из установки MT5 («Money Hunter Tools»),
+// ⚠ УТОЧНЕНИЯ ПО PDF (ASmart Tools, только MT5):
+// - Это второй индикатор из установки MT5 («ASmart Tools»),
 //   не советник. Параметров лота, магика и проскальзывания в PDF нет.
 // - Плечо ICM: in = 5, ex = 10. ICM = 50% последнего импульса.
 //   Формула «кривой правильных откатов» в PDF не задана.
