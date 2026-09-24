@@ -262,6 +262,7 @@ struct SZone
    double bot;
    int    dir;
    int    ext;
+   int    born;   // индекс бара, на закрытии которого зона уже известна
   };
 
 struct SSig
@@ -1086,9 +1087,10 @@ int LastOppBar(const double &open[], const double &close[], const int fromShift,
    return b;
   }
 
-void PushZone(SZone &zones[], int &n, const int shift, const double top, const double bot, const int dir, const int ext)
+void PushZone(SZone &zones[], int &n, const int shift, const double top, const double bot,
+               const int dir, const int ext, const int born)
   {
-   if(shift < 0 || top <= bot || dir == 0)
+   if(shift < 0 || top <= bot || dir == 0 || born < 0)
       return;
    ArrayResize(zones, n + 1);
    zones[n].shift = shift;
@@ -1096,6 +1098,7 @@ void PushZone(SZone &zones[], int &n, const int shift, const double top, const d
    zones[n].bot = bot;
    zones[n].dir = dir;
    zones[n].ext = ext;
+   zones[n].born = born;
    n++;
   }
 
@@ -1120,7 +1123,7 @@ int CollectZones(const double &open[], const double &high[], const double &low[]
         {
          if(waitBear)
            {
-            PushZone(zones, n, sw[i].shift, high[sw[i].shift], low[sw[i].shift], -1, 0);
+            PushZone(zones, n, sw[i].shift, high[sw[i].shift], low[sw[i].shift], -1, 0, sw[i].shift - 8);
             waitBear = false;
            }
          if(hasH && sw[i].price > lastH && lastHs > 0)
@@ -1139,7 +1142,7 @@ int CollectZones(const double &open[], const double &high[], const double &low[]
                int fromOb = (lastLs >= 0 ? lastLs : br + 1);
                int ob = LastOppBar(open, close, fromOb, br, true);
                if(ob >= 0)
-                  PushZone(zones, n, ob, high[ob], low[ob], 1, 1);
+                  PushZone(zones, n, ob, high[ob], low[ob], 1, 1, br);
                waitBull = true;
                waitBear = false;
               }
@@ -1152,7 +1155,7 @@ int CollectZones(const double &open[], const double &high[], const double &low[]
         {
          if(waitBull)
            {
-            PushZone(zones, n, sw[i].shift, high[sw[i].shift], low[sw[i].shift], 1, 0);
+            PushZone(zones, n, sw[i].shift, high[sw[i].shift], low[sw[i].shift], 1, 0, sw[i].shift - 8);
             waitBull = false;
            }
          if(hasL && sw[i].price < lastL && lastLs > 0)
@@ -1171,7 +1174,7 @@ int CollectZones(const double &open[], const double &high[], const double &low[]
                int fromOb = (lastHs >= 0 ? lastHs : br + 1);
                int ob = LastOppBar(open, close, fromOb, br, false);
                if(ob >= 0)
-                  PushZone(zones, n, ob, high[ob], low[ob], -1, 1);
+                  PushZone(zones, n, ob, high[ob], low[ob], -1, 1, br);
                waitBear = true;
                waitBull = false;
               }
@@ -1360,12 +1363,14 @@ void BuildSignals(const double &open[], const double &high[], const double &low[
          continue;
       if(dir < 0 && trend > 0)
          continue;
-      if(!HigherAllows(dir))
+      // Фильтр старших ТФ только для свечи, которая только что закрылась.
+      // Иначе сегодняшний тренд задним числом ставит стрелку на старую свечу.
+      if(i == 1 && !HigherAllows(dir))
          continue;
       int pick = -1;
       for(int z = 0; z < zn; z++)
         {
-         if(zones[z].dir != dir || zones[z].shift <= i)
+         if(zones[z].dir != dir || zones[z].shift <= i || i > zones[z].born)
             continue;
          bool dead = false;
          for(int k = zones[z].shift - 1; k > i; k--)
@@ -1509,7 +1514,7 @@ void BuildSignals(const double &open[], const double &high[], const double &low[
       sn++;
      }
 
-   int from = sn - 12;
+   int from = sn - 1;
    if(from < 0)
       from = 0;
    for(int s = from; s < sn; s++)

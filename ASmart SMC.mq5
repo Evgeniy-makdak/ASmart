@@ -991,7 +991,6 @@ void BuildFVG(const double &high[], const double &low[], const datetime &time[],
             endT = right;
         }
       DrawRect("FVG", time[older], top, endT, bot, InpColFVG, false, false, "");
-      DrawText(time[newer], top, "FVG", InpOBTextColor);
       kept++;
       if(kept >= 80)
          break;
