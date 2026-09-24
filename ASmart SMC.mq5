@@ -424,6 +424,11 @@ void ApplyText(const string name, const string text, const color c)
    ObjectSetInteger(0, name, OBJPROP_BACK, false);
   }
 
+string DirLabel(const bool bull, const string name)
+  {
+   return (bull ? "бычий " : "медвежий ") + name;
+  }
+
 color ChartInk()
   {
    color bg = (color)ChartGetInteger(0, CHART_COLOR_BACKGROUND);
@@ -677,7 +682,7 @@ void BuildFromSwings(const double &open[], const double &high[], const double &l
       if(secArm != 0 && sw[i].type == secArm)
         {
          double py = (sw[i].type == 1 ? high[sw[i].shift] : low[sw[i].shift]);
-         DrawText(sw[i].t, py, inner ? "i-Secondary IDM" : "Secondary IDM", InpColIDM);
+         DrawText(sw[i].t, py, DirLabel(secArm < 0, inner ? "i-Secondary IDM" : "Secondary IDM"), InpColIDM);
          secArm = 0;
         }
       if(sw[i].type == 1)
@@ -689,7 +694,7 @@ void BuildFromSwings(const double &open[], const double &high[], const double &l
             bool accept = extMode ? true : (!haveExt || sw[i].price <= extTop);
             if(accept)
               {
-               string lab = inner ? "i-IDM" : "IDM";
+               string lab = DirLabel(false, inner ? "i-IDM" : "IDM");
                bool al = inner ? InpAlIIDM : InpAlIDM;
                DrawText(sw[i].t, high[sw[i].shift], lab, InpColIDM);
                PushZone(high[sw[i].shift], low[sw[i].shift], lab + " " + IntegerToString((int)sw[i].t), al);
@@ -697,7 +702,7 @@ void BuildFromSwings(const double &open[], const double &high[], const double &l
                   secArm = 1;
                if(InpShowOBIDM)
                  {
-                  string ol = inner ? "i-OB-IDM" : "OB-IDM";
+                  string ol = DirLabel(false, inner ? "i-OB-IDM" : "OB-IDM");
                   bool oa = inner ? InpAlIOBIDM : InpAlOBIDM;
                   datetime rt = ZoneEnd(close, time, sw[i].shift, false, high[sw[i].shift]);
                   DrawRect(inner ? "IOBI" : "OBI", time[sw[i].shift], high[sw[i].shift], rt, low[sw[i].shift],
@@ -705,7 +710,7 @@ void BuildFromSwings(const double &open[], const double &high[], const double &l
                   DrawZoneLabel(time[sw[i].shift], rt, high[sw[i].shift], low[sw[i].shift], ol);
                  }
                if(outside && !extMode)
-                  DrawText(sw[i].t, high[sw[i].shift], "IDM-ChoCh conflict", InpColConflict);
+                  DrawText(sw[i].t, high[sw[i].shift], DirLabel(false, "конфликт IDM-ChoCh"), InpColConflict);
               }
             waitBearIDM = false;
            }
@@ -738,8 +743,8 @@ void BuildFromSwings(const double &open[], const double &high[], const double &l
                bool al;
                if(sweptOnly)
                  {
-                  lab = choch ? (inner ? "i-Sweeped ChoCh" : "Sweeped ChoCh")
-                              : (inner ? "i-Sweeped BoS" : "Sweeped BoS");
+                  lab = DirLabel(true, choch ? (inner ? "i-Sweeped ChoCh" : "Sweeped ChoCh")
+                                         : (inner ? "i-Sweeped BoS" : "Sweeped BoS"));
                   col = InpColSweep;
                   show = choch ? InpShowSwChoCh : InpShowSwBoS;
                   al = choch ? (inner ? InpAlIChoChSw : InpAlChoChSw)
@@ -748,10 +753,10 @@ void BuildFromSwings(const double &open[], const double &high[], const double &l
                else
                  {
                   bool conflict = (choch && waitBullIDM);
-                  lab = choch ? (inner ? "i-ChoCh" : "ChoCh")
-                              : (inner ? "i-BoS" : "BoS");
+                  lab = DirLabel(true, choch ? (inner ? "i-ChoCh" : "ChoCh")
+                                         : (inner ? "i-BoS" : "BoS"));
                   if(conflict)
-                     lab = "IDM-ChoCh conflict";
+                     lab = DirLabel(true, "конфликт IDM-ChoCh");
                   col = conflict ? InpColConflict : InpColBull;
                   show = choch ? InpShowChoCh : InpShowBoS;
                   al = choch ? (inner ? InpAlIChoCh : InpAlChoCh)
@@ -775,7 +780,7 @@ void BuildFromSwings(const double &open[], const double &high[], const double &l
                   int ob = LastOppCandle(open, close, fromOb, br, true);
                   if(ob >= 0 && ob < total)
                     {
-                     string olab = inner ? "i-OB-EXT" : "OB-EXT";
+                     string olab = DirLabel(true, inner ? "i-OB-EXT" : "OB-EXT");
                      bool oal = inner ? InpAlIOBEXT : InpAlOBEXT;
                      if(InpShowOBEXT)
                        {
@@ -786,7 +791,7 @@ void BuildFromSwings(const double &open[], const double &high[], const double &l
                        }
                      if(prevObIndex >= 0 && prevObIndex < total && InpShowPrevOB)
                        {
-                        string plab = inner ? "i-Previous OB-EXT" : "Previous OB-EXT";
+                        string plab = DirLabel(true, inner ? "i-Previous OB-EXT" : "Previous OB-EXT");
                         bool pal = inner ? InpAlIPrevOB : InpAlPrevOB;
                         DrawText(time[prevObIndex], high[prevObIndex], plab, InpOBTextColor);
                         PushZone(high[prevObIndex], low[prevObIndex], plab + " " + IntegerToString((int)time[prevObIndex]), pal);
@@ -814,7 +819,7 @@ void BuildFromSwings(const double &open[], const double &high[], const double &l
             bool accept = extMode ? true : (!haveExt || sw[i].price >= extBot);
             if(accept)
               {
-               string lab = inner ? "i-IDM" : "IDM";
+               string lab = DirLabel(true, inner ? "i-IDM" : "IDM");
                bool al = inner ? InpAlIIDM : InpAlIDM;
                DrawText(sw[i].t, low[sw[i].shift], lab, InpColIDM);
                PushZone(high[sw[i].shift], low[sw[i].shift], lab + " " + IntegerToString((int)sw[i].t), al);
@@ -822,7 +827,7 @@ void BuildFromSwings(const double &open[], const double &high[], const double &l
                   secArm = -1;
                if(InpShowOBIDM)
                  {
-                  string ol = inner ? "i-OB-IDM" : "OB-IDM";
+                  string ol = DirLabel(true, inner ? "i-OB-IDM" : "OB-IDM");
                   bool oa = inner ? InpAlIOBIDM : InpAlOBIDM;
                   datetime rt = ZoneEnd(close, time, sw[i].shift, true, low[sw[i].shift]);
                   DrawRect(inner ? "IOBI" : "OBI", time[sw[i].shift], high[sw[i].shift], rt, low[sw[i].shift],
@@ -869,8 +874,8 @@ void BuildFromSwings(const double &open[], const double &high[], const double &l
                bool al;
                if(sweptOnly)
                  {
-                  lab = choch ? (inner ? "i-Sweeped ChoCh" : "Sweeped ChoCh")
-                              : (inner ? "i-Sweeped BoS" : "Sweeped BoS");
+                  lab = DirLabel(false, choch ? (inner ? "i-Sweeped ChoCh" : "Sweeped ChoCh")
+                                          : (inner ? "i-Sweeped BoS" : "Sweeped BoS"));
                   col = InpColSweep;
                   show = choch ? InpShowSwChoCh : InpShowSwBoS;
                   al = choch ? (inner ? InpAlIChoChSw : InpAlChoChSw)
@@ -879,11 +884,11 @@ void BuildFromSwings(const double &open[], const double &high[], const double &l
                else
                  {
                   bool conflict = (choch && waitBearIDM);
-                  lab = choch ? (inner ? "i-ChoCh" : "ChoCh")
-                              : (inner ? "i-BoS" : "BoS");
+                  lab = DirLabel(false, choch ? (inner ? "i-ChoCh" : "ChoCh")
+                                          : (inner ? "i-BoS" : "BoS"));
                   if(conflict)
                     {
-                     lab = "IDM-ChoCh conflict";
+                     lab = DirLabel(false, "конфликт IDM-ChoCh");
                      col = InpColConflict;
                     }
                   show = choch ? InpShowChoCh : InpShowBoS;
@@ -907,7 +912,7 @@ void BuildFromSwings(const double &open[], const double &high[], const double &l
                     {
                      if(InpShowOBEXT)
                        {
-                        string olab = inner ? "i-OB-EXT" : "OB-EXT";
+                        string olab = DirLabel(false, inner ? "i-OB-EXT" : "OB-EXT");
                         bool oal = inner ? InpAlIOBEXT : InpAlOBEXT;
                         datetime rt = ZoneEnd(close, time, ob, false, high[ob]);
                         DrawRect(inner ? "IOBX" : "OBX", time[ob], high[ob], rt, low[ob],
@@ -916,7 +921,7 @@ void BuildFromSwings(const double &open[], const double &high[], const double &l
                        }
                      if(prevObIndex >= 0 && InpShowPrevOB)
                        {
-                        string plab = inner ? "i-Previous OB-EXT" : "Previous OB-EXT";
+                        string plab = DirLabel(false, inner ? "i-Previous OB-EXT" : "Previous OB-EXT");
                         bool pal = inner ? InpAlIPrevOB : InpAlPrevOB;
                         DrawText(time[prevObIndex], low[prevObIndex], plab, InpOBTextColor);
                         PushZone(high[prevObIndex], low[prevObIndex], plab + " " + IntegerToString((int)time[prevObIndex]), pal);
@@ -965,7 +970,7 @@ void BuildFromSwings(const double &open[], const double &high[], const double &l
          if(trap)
            {
             color sc = bullOb ? InpColBullOB : InpColBearOB;
-            string lab = inner ? "i-SMT" : "SMT";
+            string lab = DirLabel(bullOb, inner ? "i-SMT" : "SMT");
             bool al = inner ? InpAlISMT : InpAlSMT;
             DrawRect(inner ? "ISMT" : "SMT", time[ob], top, time[k], bot, sc, false, al, lab + " " + IntegerToString((int)time[ob]));
             DrawText(time[k], bullOb ? bot : top, lab, InpOBTextColor);
@@ -1020,6 +1025,7 @@ void BuildFVG(const double &high[], const double &low[], const datetime &time[],
             endT = right;
         }
       DrawRect("FVG", time[older], top, endT, bot, InpColFVG, false, false, "");
+      DrawZoneLabel(time[older], endT, top, bot, DirLabel(bull, "FVG"));
       kept++;
       if(kept >= 80)
          break;
@@ -1230,28 +1236,28 @@ void DrawLive()
       string name = MH_PREFIX + "L_BOS_UP";
       if(ObjectCreate(0, name, OBJ_TREND, 0, g_lastHighT, g_lastHigh, now, g_lastHigh))
          StyleObj(name, InpColBull, 1, STYLE_DASH, false);
-      DrawLiveText("BOS_UP", now, g_lastHigh, "Live BoS");
+      DrawLiveText("BOS_UP", now, g_lastHigh, "бычий Live BoS");
      }
    if(InpLiveBoS && g_lastLow > 0.0 && bid < g_lastLow && g_trend <= 0)
      {
       string name = MH_PREFIX + "L_BOS_DN";
       if(ObjectCreate(0, name, OBJ_TREND, 0, g_lastLowT, g_lastLow, now, g_lastLow))
          StyleObj(name, InpColBear, 1, STYLE_DASH, false);
-      DrawLiveText("BOS_DN", now, g_lastLow, "Live BoS");
+      DrawLiveText("BOS_DN", now, g_lastLow, "медвежий Live BoS");
      }
    if(InpLiveChoCh && g_lastHigh > 0.0 && bid > g_lastHigh && g_trend < 0)
      {
       string name = MH_PREFIX + "L_CH_UP";
       if(ObjectCreate(0, name, OBJ_TREND, 0, g_lastHighT, g_lastHigh, now, g_lastHigh))
          StyleObj(name, InpColConflict, 2, STYLE_DASH, false);
-      DrawLiveText("CH_UP", now, g_lastHigh, "Live ChoCh");
+      DrawLiveText("CH_UP", now, g_lastHigh, "бычий Live ChoCh");
      }
    if(InpLiveChoCh && g_lastLow > 0.0 && bid < g_lastLow && g_trend > 0)
      {
       string name = MH_PREFIX + "L_CH_DN";
       if(ObjectCreate(0, name, OBJ_TREND, 0, g_lastLowT, g_lastLow, now, g_lastLow))
          StyleObj(name, InpColConflict, 2, STYLE_DASH, false);
-      DrawLiveText("CH_DN", now, g_lastLow, "Live ChoCh");
+      DrawLiveText("CH_DN", now, g_lastLow, "медвежий Live ChoCh");
      }
 
    // Live IDM — незакрытый откат текущей свечи против последнего тренда.
@@ -1261,7 +1267,7 @@ void DrawLive()
       string name = MH_PREFIX + "L_IDM";
       if(ObjectCreate(0, name, OBJ_TREND, 0, prev, p, now, p))
          StyleObj(name, InpColIDM, 1, STYLE_DOT, false);
-      DrawLiveText("IDM", now, p, "Live IDM");
+      DrawLiveText("IDM", now, p, (g_trend > 0 ? "бычий Live IDM" : "медвежий Live IDM"));
      }
    // Live secondary IDM — экстремум предыдущей закрытой свечи, если он против тренда.
    if(InpLiveIDM2 && g_trend != 0)
@@ -1271,7 +1277,7 @@ void DrawLive()
       string name = MH_PREFIX + "L_IDM2";
       if(t2 > 0 && ObjectCreate(0, name, OBJ_TREND, 0, t2, p2, prev, p2))
          StyleObj(name, InpColIDM, 1, STYLE_DASHDOT, false);
-      DrawLiveText("IDM2", prev, p2, "Live secondary IDM");
+      DrawLiveText("IDM2", prev, p2, (g_trend > 0 ? "бычий Live secondary IDM" : "медвежий Live secondary IDM"));
      }
   }
 
