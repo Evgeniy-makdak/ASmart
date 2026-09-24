@@ -1457,11 +1457,13 @@ void DrawChrome()
       for(int i = 0; i < dots; i++)
          row += "●";
       color dc = (g_trend > 0 ? InpColBull : InpColBear);
-      MakeLabel(MH_PREFIX + "C_TD1", row, CORNER_LEFT_LOWER, 4, 18, dc, 6, clrNONE);
+      string word = (g_trend > 0 ? "покупка " : "продажа ");
+      MakeLabel(MH_PREFIX + "C_TD1", word + row, CORNER_LEFT_LOWER, 4, 18, dc, 8, clrNONE);
       if(g_innerTrend != 0)
         {
          color ic = (g_innerTrend > 0 ? InpColBull : InpColBear);
-         MakeLabel(MH_PREFIX + "C_TD2", row, CORNER_LEFT_LOWER, 4, 8, ic, 6, clrNONE);
+         string word2 = (g_innerTrend > 0 ? "покупка " : "продажа ");
+         MakeLabel(MH_PREFIX + "C_TD2", word2 + row, CORNER_LEFT_LOWER, 4, 8, ic, 8, clrNONE);
         }
      }
   }
