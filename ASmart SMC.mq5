@@ -100,21 +100,22 @@ input bool            InpShowOBText    = true;                       // Show ord
 input color           InpOBTextColor   = clrLightSteelBlue;          // Order block text color
 input int             InpPtTransp      = 60;                         // Structure Points Transparency (0 - 100)
 input string          SepCharts        = "";                         // ---- SMC | Charts Controls ----
-input bool            InpShowPoints    = true;                       // Structure Points
+input bool            InpShowPoints    = false;                      // Structure Points
 input bool            InpShowIDM       = true;                       // IDM
 input bool            InpShowSecIDM    = false;                      // Secondary IDM
 input bool            InpShowBoS       = true;                       // BoS
 input bool            InpShowChoCh     = true;                       // ChoCh
-input bool            InpShowSwBoS     = true;                       // Sweeped BoS
-input bool            InpShowSwChoCh   = true;                       // Sweeped ChoCh
+input bool            InpShowSwBoS     = false;                      // Sweeped BoS
+input bool            InpShowSwChoCh   = false;                      // Sweeped ChoCh
 input bool            InpShowOBIDM     = true;                       // OB-IDM
 input bool            InpShowOBEXT     = true;                       // OB-EXT
 input bool            InpShowPrevOB    = false;                      // Previous OB-EXT
-input bool            InpShowSMT       = true;                       // SMT
-input bool            InpLiveIDM       = true;                       // Live IDM
+input bool            InpShowSMT       = false;                      // SMT
+input bool            InpShowFVG       = false;                      // FVG
+input bool            InpLiveIDM       = false;                      // Live IDM
 input bool            InpLiveIDM2      = false;                      // Live secondary IDM
-input bool            InpLiveBoS       = true;                       // Live BoS
-input bool            InpLiveChoCh     = true;                       // Live ChoCh
+input bool            InpLiveBoS       = false;                      // Live BoS
+input bool            InpLiveChoCh     = false;                      // Live ChoCh
 input string          SepColSt         = "";                         // ---- SMC: Structure | Colours ----
 input color           InpColMono       = clrGray;                    // Monochrome
 input color           InpColBull       = clrTeal;                    // Bullish
@@ -217,6 +218,7 @@ int     g_zoneN = 0;
 string  g_fired[];
 int     g_seq = 0;
 datetime g_lastBar = 0;
+color    g_chartBg = clrNONE;
 int     g_trend = 0;       // 1 long, -1 short, 0 flat — текущая структура
 int     g_innerTrend = 0;
 double  g_lastHigh = 0.0;
@@ -420,6 +422,33 @@ void ApplyText(const string name, const string text, const color c)
    ObjectSetInteger(0, name, OBJPROP_SELECTABLE, false);
    ObjectSetInteger(0, name, OBJPROP_HIDDEN, true);
    ObjectSetInteger(0, name, OBJPROP_BACK, false);
+  }
+
+color ChartInk()
+  {
+   color bg = (color)ChartGetInteger(0, CHART_COLOR_BACKGROUND);
+   int r = (int)(bg & 0xFF);
+   int g = (int)((bg >> 8) & 0xFF);
+   int b = (int)((bg >> 16) & 0xFF);
+   int luma = (r * 299 + g * 587 + b * 114) / 1000;
+   if(luma >= 160)
+      return clrBlack;
+   return clrWhite;
+  }
+
+void DrawZoneLabel(const datetime t1, const datetime t2, const double p1, const double p2, const string text)
+  {
+   if(!InpShowOBText || text == "" || t1 <= 0 || t2 <= 0)
+      return;
+   datetime t = t1 + (datetime)((t2 - t1) / 2);
+   if(t2 < t1)
+      t = t2 + (datetime)((t1 - t2) / 2);
+   double p = (p1 + p2) * 0.5;
+   string name = NextName("TXT");
+   if(!ObjectCreate(0, name, OBJ_TEXT, 0, t, p))
+      return;
+   ApplyText(name, text, ChartInk());
+   ObjectSetInteger(0, name, OBJPROP_ANCHOR, ANCHOR_CENTER);
   }
 
 void DrawText(const datetime t, const double p, const string text, const color c)
@@ -672,8 +701,8 @@ void BuildFromSwings(const double &open[], const double &high[], const double &l
                   bool oa = inner ? InpAlIOBIDM : InpAlOBIDM;
                   datetime rt = ZoneEnd(close, time, sw[i].shift, false, high[sw[i].shift]);
                   DrawRect(inner ? "IOBI" : "OBI", time[sw[i].shift], high[sw[i].shift], rt, low[sw[i].shift],
-                           InpColBear, false, oa, ol + " " + IntegerToString((int)sw[i].t));
-                  DrawText(time[sw[i].shift], high[sw[i].shift], ol, InpOBTextColor);
+                           InpColBearOB, true, oa, ol + " " + IntegerToString((int)sw[i].t));
+                  DrawZoneLabel(time[sw[i].shift], rt, high[sw[i].shift], low[sw[i].shift], ol);
                  }
                if(outside && !extMode)
                   DrawText(sw[i].t, high[sw[i].shift], "IDM-ChoCh conflict", InpColConflict);
@@ -752,8 +781,8 @@ void BuildFromSwings(const double &open[], const double &high[], const double &l
                        {
                         datetime rt = ZoneEnd(close, time, ob, true, low[ob]);
                         DrawRect(inner ? "IOBX" : "OBX", time[ob], high[ob], rt, low[ob],
-                                 InpColBull, false, oal, olab + " " + IntegerToString((int)time[ob]));
-                        DrawText(time[ob], high[ob], olab, InpOBTextColor);
+                                 InpColBull, true, oal, olab + " " + IntegerToString((int)time[ob]));
+                        DrawZoneLabel(time[ob], rt, high[ob], low[ob], olab);
                        }
                      if(prevObIndex >= 0 && prevObIndex < total && InpShowPrevOB)
                        {
@@ -797,8 +826,8 @@ void BuildFromSwings(const double &open[], const double &high[], const double &l
                   bool oa = inner ? InpAlIOBIDM : InpAlOBIDM;
                   datetime rt = ZoneEnd(close, time, sw[i].shift, true, low[sw[i].shift]);
                   DrawRect(inner ? "IOBI" : "OBI", time[sw[i].shift], high[sw[i].shift], rt, low[sw[i].shift],
-                           InpColBull, false, oa, ol + " " + IntegerToString((int)sw[i].t));
-                  DrawText(time[sw[i].shift], low[sw[i].shift], ol, InpOBTextColor);
+                           InpColBullOB, true, oa, ol + " " + IntegerToString((int)sw[i].t));
+                  DrawZoneLabel(time[sw[i].shift], rt, high[sw[i].shift], low[sw[i].shift], ol);
                  }
                // свип IDM: более новый бар проколол минимум IDM
                for(int k = sw[i].shift - 1; k >= 1; k--)
@@ -882,8 +911,8 @@ void BuildFromSwings(const double &open[], const double &high[], const double &l
                         bool oal = inner ? InpAlIOBEXT : InpAlOBEXT;
                         datetime rt = ZoneEnd(close, time, ob, false, high[ob]);
                         DrawRect(inner ? "IOBX" : "OBX", time[ob], high[ob], rt, low[ob],
-                                 InpColBear, false, oal, olab + " " + IntegerToString((int)time[ob]));
-                        DrawText(time[ob], low[ob], olab, InpOBTextColor);
+                                 InpColBear, true, oal, olab + " " + IntegerToString((int)time[ob]));
+                        DrawZoneLabel(time[ob], rt, high[ob], low[ob], olab);
                        }
                      if(prevObIndex >= 0 && InpShowPrevOB)
                        {
@@ -1145,7 +1174,8 @@ void Rebuild()
    if(InpShowCurrent)
       RunLayer(open, high, low, close, time, total, false, true, extTop, extBot, haveExt);
 
-   BuildFVG(high, low, time, total);
+   if(InpShowFVG)
+      BuildFVG(high, low, time, total);
 
    if(g_lastHigh > g_lastLow && g_lastHigh > 0.0 && g_lastLow > 0.0)
      {
@@ -1500,10 +1530,12 @@ int OnCalculate(const int rates_total,
       ArrayInitialize(g_dummy, EMPTY_VALUE);
 
    datetime bar = iTime(_Symbol, _Period, 0);
-   bool rebuild = (prev_calculated == 0 || bar != g_lastBar);
+   color bg = (color)ChartGetInteger(0, CHART_COLOR_BACKGROUND);
+   bool rebuild = (prev_calculated == 0 || bar != g_lastBar || bg != g_chartBg);
    if(rebuild)
      {
       g_lastBar = bar;
+      g_chartBg = bg;
       Rebuild();
       DrawPD();
       RefreshDash();

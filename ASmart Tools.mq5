@@ -74,9 +74,9 @@ input string          SepAdv        = "";                      // ---- ICSM | Ad
 input bool            InpICCircles  = false;                   // Show IC as circles ?
 input ENUM_TL_TSIZE   InpCircleSize = TL_TS_TINY;              // Circle size
 input string          SepOF         = "";                      // ---- Orderflow (OF) | Settings ----
-input bool            InpShowBullOF = true;                    // Show bullish OF ?
+input bool            InpShowBullOF = false;                   // Show bullish OF ?
 input color           InpBullOF     = clrDodgerBlue;           // Bullish OF color
-input bool            InpShowBearOF = true;                    // Show bearish OF ?
+input bool            InpShowBearOF = false;                   // Show bearish OF ?
 input color           InpBearOF     = clrGoldenrod;            // Bearish OF color
 input bool            InpOFBorder   = false;                   // Show border
 input string          SepFVG        = "";                      // ---- Fair Value Gap (FVG) | Settings ----
@@ -105,13 +105,13 @@ input bool            InpPDDiv      = false;                   // Show previous 
 input color           InpPDH        = clrAqua;                 // PDH color
 input color           InpPDL        = clrAqua;                 // PDL color
 input string          SepWick       = "";                      // ---- High Wick ----
-input bool            InpShowWick   = true;                    // Show High Wick ?
+input bool            InpShowWick   = false;                   // Show High Wick ?
 input double          InpWickThr    = 0.4;                     // Shadow threshold (%)
 input bool            InpWickClose  = true;                    // Use close condition ?
 input color           InpWickUp     = clrDeepSkyBlue;          // Large upper shadow color
 input color           InpWickDn     = clrMagenta;              // Large lower shadow color
 input string          SepSP         = "";                      // ---- Smart Point ----
-input bool            InpShowSP     = true;                    // Show Smart Point ?
+input bool            InpShowSP     = false;                   // Show Smart Point ?
 input ENUM_TL_PRESET  InpPreset     = TL_PRESET_DEFAULT;       // Preconfigured Input Preset
 input bool            InpLQD        = false;                   // Enable Filter LQD Sweep
 input int             InpBoxWidth   = 2;                       // Box Border Width (1-5)
@@ -543,15 +543,15 @@ void BuildICM(const double &open[], const double &high[], const double &low[],
    g_hasIcm = true;
    datetime t1 = sw[a].t;
    datetime t2 = time[0] + (datetime)(15 * PeriodSeconds(_Period));
-   int from = n - 8;
-   if(from < 0)
-      from = 0;
-   for(int i = from; i < n - 1; i++)
-      DrawTrend("IC", sw[i].t, sw[i].price, sw[i + 1].t, sw[i + 1].price, InpICColor, 1, ToStyle(InpICStyle));
-   DrawTrend("ICM", t1, g_icm, t2, g_icm, InpICMColor, 1, ToStyle(InpICMStyle));
-   DrawLabel(t2, g_icm, "ICM", InpICMColor);
    if(InpShowBase)
      {
+      int from = n - 8;
+      if(from < 0)
+         from = 0;
+      for(int i = from; i < n - 1; i++)
+         DrawTrend("IC", sw[i].t, sw[i].price, sw[i + 1].t, sw[i + 1].price, InpICColor, 1, ToStyle(InpICStyle));
+      DrawTrend("ICM", t1, g_icm, t2, g_icm, InpICMColor, 1, ToStyle(InpICMStyle));
+      DrawLabel(t2, g_icm, "ICM", InpICMColor);
       DrawTrend("ICB1", t1, top, t2, top, InpICMColor, 1, STYLE_DOT);
       DrawTrend("ICB2", t1, bot, t2, bot, InpICMColor, 1, STYLE_DOT);
      }
@@ -1528,10 +1528,8 @@ void BuildSignals(const double &open[], const double &high[], const double &low[
          pad = 5.0 * _Point;
       double arrowP = (dir > 0 ? low[sigs[s].shift] - pad : high[sigs[s].shift] + pad);
       DrawArrow(sigs[s].t, arrowP, (dir > 0 ? 233 : 234), col);
-      string side = (dir > 0 ? "BUY " : "SELL ");
-      string txt = side + IntegerToString(sigs[s].pct) + "%  SL " + DoubleToString(sigs[s].sl, _Digits)
-                   + "  TP1 " + DoubleToString(sigs[s].tp1, _Digits)
-                   + "  TP2 " + DoubleToString(sigs[s].tp2, _Digits);
+      string side = (dir > 0 ? "Покупка " : "Продажа ");
+      string txt = side + IntegerToString(sigs[s].pct) + "%";
       DrawSigText(sigs[s].t, arrowP, txt, col, dir > 0);
       datetime endT = time[0];
       for(int k = sigs[s].shift - 1; k >= 0; k--)
@@ -1551,9 +1549,9 @@ void BuildSignals(const double &open[], const double &high[], const double &low[
          endT = sigs[s].t + (datetime)(48 * PeriodSeconds(_Period));
       if(s == sn - 1 && endT == time[0])
          endT = time[0] + (datetime)(12 * PeriodSeconds(_Period));
-      DrawLevel("SL", sigs[s].t, endT, sigs[s].sl, clrFireBrick, "SL");
-      DrawLevel("TP", sigs[s].t, endT, sigs[s].tp1, clrDodgerBlue, "TP1");
-      DrawLevel("TP2", sigs[s].t, endT, sigs[s].tp2, clrDarkOrange, "TP2");
+      DrawLevel("SL", sigs[s].t, endT, sigs[s].sl, clrFireBrick, "Стоп");
+      DrawLevel("TP", sigs[s].t, endT, sigs[s].tp1, clrDodgerBlue, "Тейк 1:1");
+      DrawLevel("TP2", sigs[s].t, endT, sigs[s].tp2, clrDarkOrange, "Дальний тейк");
      }
 
    if(InpAlertSignal && sn > 0 && sigs[sn - 1].shift == 1)
