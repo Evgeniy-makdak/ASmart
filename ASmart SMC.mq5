@@ -87,7 +87,7 @@ input ENUM_TIMEFRAMES InpHTF           = PERIOD_H1;                  // --- Base
 input bool            InpShowCurrent   = true;                       // Show current structure ?
 input bool            InpShowInner     = false;                      // Show inner structure ?
 input string          SepDash          = "";                         // ---- MTF | Dashboard ----
-input bool            InpShowDash      = true;                       // Show dashboard
+input bool            InpShowDash      = false;                      // Show dashboard
 input ENUM_MH_VPOS    InpDashV         = MH_VPOS_BOTTOM;             // Vertical dashboard position
 input ENUM_MH_HPOS    InpDashH         = MH_HPOS_RIGHT;              // Horizontal dashboard position
 input ENUM_MH_HTFMODE InpHigherMode    = MH_HTF_AUTO;                // Higher TFs:
@@ -95,20 +95,21 @@ input ENUM_TIMEFRAMES InpManualTF1     = PERIOD_M1;                  // --- Manu
 input ENUM_TIMEFRAMES InpManualTF2     = PERIOD_M5;                  // --- Manual-selected TF2:
 input ENUM_TIMEFRAMES InpManualTF3     = PERIOD_M15;                 // --- Manual-selected TF3:
 input string          SepVis           = "";                         // ---- SMC | Visual Controls ----
-input ENUM_MH_TSIZE   InpTextSize      = MH_TS_NORMAL;               // Text Size
+input ENUM_MH_TSIZE   InpTextSize      = MH_TS_TINY;                 // Text Size
 input bool            InpShowOBText    = true;                       // Show order block text?
 input color           InpOBTextColor   = clrLightSteelBlue;          // Order block text color
 input int             InpPtTransp      = 60;                         // Structure Points Transparency (0 - 100)
 input string          SepCharts        = "";                         // ---- SMC | Charts Controls ----
 input bool            InpShowPoints    = true;                       // Structure Points
 input bool            InpShowIDM       = true;                       // IDM
+input bool            InpShowSecIDM    = false;                      // Secondary IDM
 input bool            InpShowBoS       = true;                       // BoS
 input bool            InpShowChoCh     = true;                       // ChoCh
 input bool            InpShowSwBoS     = true;                       // Sweeped BoS
 input bool            InpShowSwChoCh   = true;                       // Sweeped ChoCh
 input bool            InpShowOBIDM     = true;                       // OB-IDM
 input bool            InpShowOBEXT     = true;                       // OB-EXT
-input bool            InpShowPrevOB    = true;                      // Previous OB-EXT
+input bool            InpShowPrevOB    = false;                      // Previous OB-EXT
 input bool            InpShowSMT       = true;                       // SMT
 input bool            InpLiveIDM       = true;                       // Live IDM
 input bool            InpLiveIDM2      = false;                      // Live secondary IDM
@@ -128,7 +129,7 @@ input color           InpColFVG        = clrOrange;                  // FVG
 input string          SepTrend         = "";                         // ---- SMC: Trend | Visual Controls ----
 input bool            InpColorBg       = false;                      // Colour background by structure
 input int             InpBgTransp      = 90;                         // Background colour transparency
-input bool            InpShowDivider   = false;                      // Show trend divider
+input bool            InpShowDivider   = true;                       // Show trend divider
 input string          SepPD            = "";                         // ---- Premium/Discount (P/D) | Zones Settings ----
 input bool            InpShowPD        = false;                      // "Show Premium/Discount Zones"
 input color           InpPDUpperCol    = clrBlue;                    // Upper line color
@@ -138,16 +139,16 @@ input ENUM_MH_LSTYLE  InpPDMidSt       = MH_LS_SOLID;                // Middle l
 input color           InpPDLowerCol    = clrBlue;                    // Lower line color
 input ENUM_MH_LSTYLE  InpPDLowerSt     = MH_LS_SOLID;                // Lower line style
 input string          SepAlExt         = "";                         // ---- Alerts | External Structure ----
-input bool            InpAlBoS         = true;                       // BoS
-input bool            InpAlBoSSw       = true;                       // BoS sweep
-input bool            InpAlChoCh       = true;                       // ChoCh
-input bool            InpAlChoChSw     = true;                       // ChoCh sweep
-input bool            InpAlIDM         = true;                       // IDM
-input bool            InpAlIDMSw       = true;                       // IDM sweep
-input bool            InpAlOBIDM       = true;                       // OB-IDM
-input bool            InpAlOBEXT       = true;                       // OB-EXT
-input bool            InpAlPrevOB      = true;                       // Previous OB-EXT
-input bool            InpAlSMT         = true;                       // SMT
+input bool            InpAlBoS         = false;                      // BoS
+input bool            InpAlBoSSw       = false;                      // BoS sweep
+input bool            InpAlChoCh       = false;                      // ChoCh
+input bool            InpAlChoChSw     = false;                      // ChoCh sweep
+input bool            InpAlIDM         = false;                      // IDM
+input bool            InpAlIDMSw       = false;                      // IDM sweep
+input bool            InpAlOBIDM       = false;                      // OB-IDM
+input bool            InpAlOBEXT       = false;                      // OB-EXT
+input bool            InpAlPrevOB      = false;                     // Previous OB-EXT
+input bool            InpAlSMT         = false;                      // SMT
 input string          SepAlInt         = "";                         // ---- Alerts | Internal Structure ----
 input bool            InpAlIBoS        = false;                      // I-BoS
 input bool            InpAlIBoSSw      = false;                      // I-BoS sweep
@@ -409,13 +410,8 @@ void DrawRect(const string tag, const datetime t1, const double p1,
       PushZone(pa, pb, zkey, alert);
   }
 
-void DrawText(const datetime t, const double p, const string text, const color c)
+void ApplyText(const string name, const string text, const color c)
   {
-   if(!InpShowOBText || text == "" || t <= 0)
-      return;
-   string name = NextName("TXT");
-   if(!ObjectCreate(0, name, OBJ_TEXT, 0, t, p))
-      return;
    ObjectSetString(0, name, OBJPROP_TEXT, text);
    ObjectSetString(0, name, OBJPROP_FONT, "Arial");
    ObjectSetInteger(0, name, OBJPROP_FONTSIZE, FontSize(InpTextSize));
@@ -424,6 +420,28 @@ void DrawText(const datetime t, const double p, const string text, const color c
    ObjectSetInteger(0, name, OBJPROP_SELECTABLE, false);
    ObjectSetInteger(0, name, OBJPROP_HIDDEN, true);
    ObjectSetInteger(0, name, OBJPROP_BACK, false);
+  }
+
+void DrawText(const datetime t, const double p, const string text, const color c)
+  {
+   if(!InpShowOBText || text == "" || t <= 0)
+      return;
+   string name = NextName("TXT");
+   if(!ObjectCreate(0, name, OBJ_TEXT, 0, t, p))
+      return;
+   ApplyText(name, text, c);
+  }
+
+// Живая подпись: одно имя на событие. DrawLive в начале тика удаляет ASMC_L_,
+// поэтому старая надпись исчезает, а новая пишется один раз на актуальной цене.
+void DrawLiveText(const string tag, const datetime t, const double p, const string text)
+  {
+   if(!InpShowOBText || text == "" || t <= 0)
+      return;
+   string name = MH_PREFIX + "L_TXT_" + tag;
+   if(!ObjectCreate(0, name, OBJ_TEXT, 0, t, p))
+      return;
+   ApplyText(name, text, InpOBTextColor);
   }
 
 void DrawPoint(const datetime t, const double p, const color c)
@@ -567,6 +585,20 @@ int LastOppCandle(const double &open[], const double &close[],
    return b;
   }
 
+datetime ZoneEnd(const double &close[], const datetime &time[], const int ob,
+                 const bool demand, const double edge)
+  {
+   datetime right = time[0];
+   for(int k = ob - 1; k >= 0; k--)
+     {
+      if(demand && close[k] < edge)
+         return time[k];
+      if(!demand && close[k] > edge)
+         return time[k];
+     }
+   return right;
+  }
+
 //+------------------------------------------------------------------+
 //| Структура одного набора свингов.                                  |
 //| п. 5 IDM: первый откат после BOS; структура подтверждается,       |
@@ -594,6 +626,7 @@ void BuildFromSwings(const double &open[], const double &high[], const double &l
    bool waitBullIDM = false;
    bool waitBearIDM = false;
    int prevObIndex = -1;
+   int secArm = 0;
 
    for(int i = 0; i < n - 1; i++)
       DrawTrend(inner ? "ILEG" : "LEG", sw[i].t, sw[i].price, sw[i + 1].t, sw[i + 1].price,
@@ -612,6 +645,12 @@ void BuildFromSwings(const double &open[], const double &high[], const double &l
 
    for(int i = 0; i < n; i++)
      {
+      if(secArm != 0 && sw[i].type == secArm)
+        {
+         double py = (sw[i].type == 1 ? high[sw[i].shift] : low[sw[i].shift]);
+         DrawText(sw[i].t, py, inner ? "i-Secondary IDM" : "Secondary IDM", InpColIDM);
+         secArm = 0;
+        }
       if(sw[i].type == 1)
         {
          if(waitBearIDM && InpShowIDM)
@@ -623,9 +662,19 @@ void BuildFromSwings(const double &open[], const double &high[], const double &l
               {
                string lab = inner ? "i-IDM" : "IDM";
                bool al = inner ? InpAlIIDM : InpAlIDM;
-               DrawRect(inner ? "IIDM" : "IDM", sw[i].t, high[sw[i].shift], time[MathMax(sw[i].shift - 1, 0)], low[sw[i].shift],
-                        InpColIDM, true, al, lab + " " + IntegerToString((int)sw[i].t));
-               DrawText(sw[i].t, high[sw[i].shift], lab, InpOBTextColor);
+               DrawText(sw[i].t, high[sw[i].shift], lab, InpColIDM);
+               PushZone(high[sw[i].shift], low[sw[i].shift], lab + " " + IntegerToString((int)sw[i].t), al);
+               if(InpShowSecIDM)
+                  secArm = 1;
+               if(InpShowOBIDM)
+                 {
+                  string ol = inner ? "i-OB-IDM" : "OB-IDM";
+                  bool oa = inner ? InpAlIOBIDM : InpAlOBIDM;
+                  datetime rt = ZoneEnd(close, time, sw[i].shift, false, high[sw[i].shift]);
+                  DrawRect(inner ? "IOBI" : "OBI", time[sw[i].shift], high[sw[i].shift], rt, low[sw[i].shift],
+                           InpColBear, false, oa, ol + " " + IntegerToString((int)sw[i].t));
+                  DrawText(time[sw[i].shift], high[sw[i].shift], ol, InpOBTextColor);
+                 }
                if(outside && !extMode)
                   DrawText(sw[i].t, high[sw[i].shift], "IDM-ChoCh conflict", InpColConflict);
               }
@@ -701,8 +750,9 @@ void BuildFromSwings(const double &open[], const double &high[], const double &l
                      bool oal = inner ? InpAlIOBEXT : InpAlOBEXT;
                      if(InpShowOBEXT)
                        {
-                        DrawRect(inner ? "IOBX" : "OBX", time[ob], high[ob], time[br], low[ob],
-                                 InpColBullOB, true, oal, olab + " " + IntegerToString((int)time[ob]));
+                        datetime rt = ZoneEnd(close, time, ob, true, low[ob]);
+                        DrawRect(inner ? "IOBX" : "OBX", time[ob], high[ob], rt, low[ob],
+                                 InpColBull, false, oal, olab + " " + IntegerToString((int)time[ob]));
                         DrawText(time[ob], high[ob], olab, InpOBTextColor);
                        }
                      if(prevObIndex >= 0 && prevObIndex < total && InpShowPrevOB)
@@ -737,15 +787,17 @@ void BuildFromSwings(const double &open[], const double &high[], const double &l
               {
                string lab = inner ? "i-IDM" : "IDM";
                bool al = inner ? InpAlIIDM : InpAlIDM;
-               DrawRect(inner ? "IIDM" : "IDM", sw[i].t, high[sw[i].shift], time[MathMax(sw[i].shift - 1, 0)], low[sw[i].shift],
-                        InpColIDM, true, al, lab + " " + IntegerToString((int)sw[i].t));
-               DrawText(sw[i].t, low[sw[i].shift], lab, InpOBTextColor);
+               DrawText(sw[i].t, low[sw[i].shift], lab, InpColIDM);
+               PushZone(high[sw[i].shift], low[sw[i].shift], lab + " " + IntegerToString((int)sw[i].t), al);
+               if(InpShowSecIDM)
+                  secArm = -1;
                if(InpShowOBIDM)
                  {
                   string ol = inner ? "i-OB-IDM" : "OB-IDM";
                   bool oa = inner ? InpAlIOBIDM : InpAlOBIDM;
-                  DrawRect(inner ? "IOBI" : "OBI", time[sw[i].shift], high[sw[i].shift], time[sw[i].shift], low[sw[i].shift],
-                           InpColBullOB, true, oa, ol + " " + IntegerToString((int)sw[i].t));
+                  datetime rt = ZoneEnd(close, time, sw[i].shift, true, low[sw[i].shift]);
+                  DrawRect(inner ? "IOBI" : "OBI", time[sw[i].shift], high[sw[i].shift], rt, low[sw[i].shift],
+                           InpColBull, false, oa, ol + " " + IntegerToString((int)sw[i].t));
                   DrawText(time[sw[i].shift], low[sw[i].shift], ol, InpOBTextColor);
                  }
                // свип IDM: более новый бар проколол минимум IDM
@@ -828,8 +880,9 @@ void BuildFromSwings(const double &open[], const double &high[], const double &l
                        {
                         string olab = inner ? "i-OB-EXT" : "OB-EXT";
                         bool oal = inner ? InpAlIOBEXT : InpAlOBEXT;
-                        DrawRect(inner ? "IOBX" : "OBX", time[ob], high[ob], time[br], low[ob],
-                                 InpColBearOB, true, oal, olab + " " + IntegerToString((int)time[ob]));
+                        datetime rt = ZoneEnd(close, time, ob, false, high[ob]);
+                        DrawRect(inner ? "IOBX" : "OBX", time[ob], high[ob], rt, low[ob],
+                                 InpColBear, false, oal, olab + " " + IntegerToString((int)time[ob]));
                         DrawText(time[ob], low[ob], olab, InpOBTextColor);
                        }
                      if(prevObIndex >= 0 && InpShowPrevOB)
@@ -885,7 +938,7 @@ void BuildFromSwings(const double &open[], const double &high[], const double &l
             color sc = bullOb ? InpColBullOB : InpColBearOB;
             string lab = inner ? "i-SMT" : "SMT";
             bool al = inner ? InpAlISMT : InpAlSMT;
-            DrawRect(inner ? "ISMT" : "SMT", time[ob], top, time[k], bot, sc, true, al, lab + " " + IntegerToString((int)time[ob]));
+            DrawRect(inner ? "ISMT" : "SMT", time[ob], top, time[k], bot, sc, false, al, lab + " " + IntegerToString((int)time[ob]));
             DrawText(time[k], bullOb ? bot : top, lab, InpOBTextColor);
             break;
            }
@@ -937,7 +990,7 @@ void BuildFVG(const double &high[], const double &low[], const datetime &time[],
          if(k == 0)
             endT = right;
         }
-      DrawRect("FVG", time[older], top, endT, bot, InpColFVG, true, false, "");
+      DrawRect("FVG", time[older], top, endT, bot, InpColFVG, false, false, "");
       DrawText(time[newer], top, "FVG", InpOBTextColor);
       kept++;
       if(kept >= 80)
@@ -1148,28 +1201,28 @@ void DrawLive()
       string name = MH_PREFIX + "L_BOS_UP";
       if(ObjectCreate(0, name, OBJ_TREND, 0, g_lastHighT, g_lastHigh, now, g_lastHigh))
          StyleObj(name, InpColBull, 1, STYLE_DASH, false);
-      DrawText(now, g_lastHigh, "Live BoS", InpOBTextColor);
+      DrawLiveText("BOS_UP", now, g_lastHigh, "Live BoS");
      }
    if(InpLiveBoS && g_lastLow > 0.0 && bid < g_lastLow && g_trend <= 0)
      {
       string name = MH_PREFIX + "L_BOS_DN";
       if(ObjectCreate(0, name, OBJ_TREND, 0, g_lastLowT, g_lastLow, now, g_lastLow))
          StyleObj(name, InpColBear, 1, STYLE_DASH, false);
-      DrawText(now, g_lastLow, "Live BoS", InpOBTextColor);
+      DrawLiveText("BOS_DN", now, g_lastLow, "Live BoS");
      }
    if(InpLiveChoCh && g_lastHigh > 0.0 && bid > g_lastHigh && g_trend < 0)
      {
       string name = MH_PREFIX + "L_CH_UP";
       if(ObjectCreate(0, name, OBJ_TREND, 0, g_lastHighT, g_lastHigh, now, g_lastHigh))
          StyleObj(name, InpColConflict, 2, STYLE_DASH, false);
-      DrawText(now, g_lastHigh, "Live ChoCh", InpOBTextColor);
+      DrawLiveText("CH_UP", now, g_lastHigh, "Live ChoCh");
      }
    if(InpLiveChoCh && g_lastLow > 0.0 && bid < g_lastLow && g_trend > 0)
      {
       string name = MH_PREFIX + "L_CH_DN";
       if(ObjectCreate(0, name, OBJ_TREND, 0, g_lastLowT, g_lastLow, now, g_lastLow))
          StyleObj(name, InpColConflict, 2, STYLE_DASH, false);
-      DrawText(now, g_lastLow, "Live ChoCh", InpOBTextColor);
+      DrawLiveText("CH_DN", now, g_lastLow, "Live ChoCh");
      }
 
    // Live IDM — незакрытый откат текущей свечи против последнего тренда.
@@ -1179,7 +1232,7 @@ void DrawLive()
       string name = MH_PREFIX + "L_IDM";
       if(ObjectCreate(0, name, OBJ_TREND, 0, prev, p, now, p))
          StyleObj(name, InpColIDM, 1, STYLE_DOT, false);
-      DrawText(now, p, "Live IDM", InpOBTextColor);
+      DrawLiveText("IDM", now, p, "Live IDM");
      }
    // Live secondary IDM — экстремум предыдущей закрытой свечи, если он против тренда.
    if(InpLiveIDM2 && g_trend != 0)
@@ -1189,7 +1242,7 @@ void DrawLive()
       string name = MH_PREFIX + "L_IDM2";
       if(t2 > 0 && ObjectCreate(0, name, OBJ_TREND, 0, t2, p2, prev, p2))
          StyleObj(name, InpColIDM, 1, STYLE_DASHDOT, false);
-      DrawText(prev, p2, "Live secondary IDM", InpOBTextColor);
+      DrawLiveText("IDM2", prev, p2, "Live secondary IDM");
      }
   }
 
@@ -1357,37 +1410,23 @@ void DrawChrome()
          ObjectSetInteger(0, name, OBJPROP_HIDDEN, true);
         }
      }
-   if(InpShowDivider)
+   if(InpShowDivider && g_trend != 0)
      {
       int w = (int)ChartGetInteger(0, CHART_WIDTH_IN_PIXELS);
-      string top = MH_PREFIX + "C_TD1";
-      if(g_trend != 0 && ObjectCreate(0, top, OBJ_RECTANGLE_LABEL, 0, 0, 0))
-        {
-         ObjectSetInteger(0, top, OBJPROP_CORNER, CORNER_LEFT_LOWER);
-         ObjectSetInteger(0, top, OBJPROP_XDISTANCE, 0);
-         ObjectSetInteger(0, top, OBJPROP_YDISTANCE, 22);
-         ObjectSetInteger(0, top, OBJPROP_XSIZE, w);
-         ObjectSetInteger(0, top, OBJPROP_YSIZE, 3);
-         ObjectSetInteger(0, top, OBJPROP_BGCOLOR, (g_trend > 0 ? InpColBull : InpColBear));
-         ObjectSetInteger(0, top, OBJPROP_BACK, false);
-         ObjectSetInteger(0, top, OBJPROP_SELECTABLE, false);
-         ObjectSetInteger(0, top, OBJPROP_HIDDEN, true);
-        }
+      int dots = w / 7;
+      if(dots < 8)
+         dots = 8;
+      if(dots > 240)
+         dots = 240;
+      string row = "";
+      for(int i = 0; i < dots; i++)
+         row += "●";
+      color dc = (g_trend > 0 ? InpColBull : InpColBear);
+      MakeLabel(MH_PREFIX + "C_TD1", row, CORNER_LEFT_LOWER, 4, 18, dc, 6, clrNONE);
       if(g_innerTrend != 0)
         {
-         string bot = MH_PREFIX + "C_TD2";
-         if(ObjectCreate(0, bot, OBJ_RECTANGLE_LABEL, 0, 0, 0))
-           {
-            ObjectSetInteger(0, bot, OBJPROP_CORNER, CORNER_LEFT_LOWER);
-            ObjectSetInteger(0, bot, OBJPROP_XDISTANCE, 0);
-            ObjectSetInteger(0, bot, OBJPROP_YDISTANCE, 14);
-            ObjectSetInteger(0, bot, OBJPROP_XSIZE, w);
-            ObjectSetInteger(0, bot, OBJPROP_YSIZE, 3);
-            ObjectSetInteger(0, bot, OBJPROP_BGCOLOR, (g_innerTrend > 0 ? InpColBull : InpColBear));
-            ObjectSetInteger(0, bot, OBJPROP_BACK, false);
-            ObjectSetInteger(0, bot, OBJPROP_SELECTABLE, false);
-            ObjectSetInteger(0, bot, OBJPROP_HIDDEN, true);
-           }
+         color ic = (g_innerTrend > 0 ? InpColBull : InpColBear);
+         MakeLabel(MH_PREFIX + "C_TD2", row, CORNER_LEFT_LOWER, 4, 8, ic, 6, clrNONE);
         }
      }
   }
@@ -1398,28 +1437,8 @@ void DrawChrome()
 //+------------------------------------------------------------------+
 void CheckAlerts()
   {
-   double hi = iHigh(_Symbol, _Period, 0);
-   double lo = iLow(_Symbol, _Period, 0);
-   datetime bar = iTime(_Symbol, _Period, 0);
-   if(bar <= 0)
-      return;
-   for(int i = 0; i < g_zoneN; i++)
-     {
-      if(!g_zones[i].alert)
-         continue;
-      if(lo <= g_zones[i].top && hi >= g_zones[i].bot)
-         FireAlert(g_zones[i].key, g_zones[i].key + " " + _Symbol + " " + TFShort(_Period));
-     }
-   if(InpAlEq && g_hasRange && InpShowPD)
-     {
-      double c0 = iClose(_Symbol, _Period, 0);
-      double c1 = iClose(_Symbol, _Period, 1);
-      if((c1 - g_eq) * (c0 - g_eq) < 0.0)
-        {
-         string key = "EQ@" + IntegerToString((int)bar);
-         FireAlert(key, "Crossing equilibrium of P/D zones " + _Symbol);
-        }
-     }
+   // Касание BoS, IDM или блока — не вход. Окно Alert только у сигнала сделки в ASmart Tools.
+   return;
   }
 
 //+------------------------------------------------------------------+

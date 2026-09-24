@@ -74,25 +74,25 @@ input string          SepAdv        = "";                      // ---- ICSM | Ad
 input bool            InpICCircles  = false;                   // Show IC as circles ?
 input ENUM_TL_TSIZE   InpCircleSize = TL_TS_TINY;              // Circle size
 input string          SepOF         = "";                      // ---- Orderflow (OF) | Settings ----
-input bool            InpShowBullOF = false;                   // Show bullish OF ?
+input bool            InpShowBullOF = true;                    // Show bullish OF ?
 input color           InpBullOF     = clrDodgerBlue;           // Bullish OF color
-input bool            InpShowBearOF = false;                   // Show bearish OF ?
+input bool            InpShowBearOF = true;                    // Show bearish OF ?
 input color           InpBearOF     = clrGoldenrod;            // Bearish OF color
 input bool            InpOFBorder   = false;                   // Show border
 input string          SepFVG        = "";                      // ---- Fair Value Gap (FVG) | Settings ----
 input bool            InpShowFVG    = false;                   // Show FVGs ?
 input color           InpFvgBull    = clrMediumSeaGreen;       // Bullish FVG color
-input color           InpFvgBear    = clrRed;                  // Bearish FVG color
+input color           InpFvgBear    = clrOrangeRed;            // Bearish FVG color
 input bool            InpFvgExtend  = false;                   // Extend FVG to the right ?
 input bool            InpFvgUpdate  = false;                   // Update FVG body when swept ?
-input int             InpFvgAmount  = 10;                      // Amount of extended FVGs to show ?
+input int             InpFvgAmount  = 3;                       // Amount of extended FVGs to show ?
 input bool            InpShowMTF    = false;                   // Show MTF FVGs ?
 input ENUM_TIMEFRAMES InpFvgMTF     = PERIOD_H1;               // FVGs MTF ?
 input color           InpFvgBullHTF = clrForestGreen;          // Bullish HTF FVG color
 input color           InpFvgBearHTF = clrOrangeRed;            // Bearish HTF FVG color
 input string          SepSCOB       = "";                      // ---- SCOB Settings ----
 input bool            InpShowSCOB   = false;                   // Show SCOB ?
-input color           InpScobBull   = clrBlue;                 // Bullish color
+input color           InpScobBull   = clrTeal;                 // Bullish color
 input color           InpScobBear   = clrTomato;               // Bearish color
 input string          SepEQ         = "";                      // ---- Equal Highs/Lows (EQHL) Settings ----
 input bool            InpShowEQ     = false;                   // Show EQH/EQL ?
@@ -102,10 +102,10 @@ input string          SepPD         = "";                      // ---- Previous 
 input bool            InpShowPD     = false;                   // Show PDH/PDL
 input bool            InpPDHist     = false;                   // Show history
 input bool            InpPDDiv      = false;                   // Show previous daily divider
-input color           InpPDH        = clrBlack;                // PDH color
-input color           InpPDL        = clrBlack;                // PDL color
+input color           InpPDH        = clrAqua;                 // PDH color
+input color           InpPDL        = clrAqua;                 // PDL color
 input string          SepWick       = "";                      // ---- High Wick ----
-input bool            InpShowWick   = false;                   // Show High Wick ?
+input bool            InpShowWick   = true;                    // Show High Wick ?
 input double          InpWickThr    = 0.4;                     // Shadow threshold (%)
 input bool            InpWickClose  = true;                    // Use close condition ?
 input color           InpWickUp     = clrDeepSkyBlue;          // Large upper shadow color
@@ -145,7 +145,7 @@ input int             InpShiftB     = 0;                       // Shift at broke
 input bool            InpRangeB     = true;                    // Show Range Area and Max/Min
 input bool            InpDescOnB    = true;                    // Show Description
 input string          InpDescB      = "Session B";             // Description
-input color           InpMainB      = clrGray;                 // Main Color
+input color           InpMainB      = clrYellow;               // Main Color
 input ENUM_TL_AREA    InpAreaB      = TL_AREA_OUTLINE;         // Area Visual
 input color           InpFillB      = clrNavy;                 // Fill Color
 input bool            InpMaxB       = false;                   // Show Max/Min
@@ -154,12 +154,12 @@ input bool            InpMeanB      = false;                   // Mean
 input bool            InpVwapB      = false;                   // VWAP
 input string          SepC          = "";                      // ---- Session C ----
 input bool            InpShowC      = false;                   // Show Session C
-input string          InpTimeC      = "17:30-19:00";           // Session time (by broker time):
+input string          InpTimeC      = "13:00-15:00";           // Session time (by broker time):
 input int             InpShiftC     = 0;                       // Shift at broker time (+/-) hour
 input bool            InpRangeC     = true;                    // Show Range Area and Max/Min
 input bool            InpDescOnC    = true;                    // Show Description
 input string          InpDescC      = "Session C";             // Description
-input color           InpMainC      = clrGray;                 // Main Color
+input color           InpMainC      = clrMagenta;              // Main Color
 input ENUM_TL_AREA    InpAreaC      = TL_AREA_OUTLINE;         // Area Visual
 input color           InpFillC      = clrNavy;                 // Fill Color
 input bool            InpMaxC       = false;                   // Show Max/Min
@@ -168,18 +168,60 @@ input bool            InpMeanC      = false;                   // Mean
 input bool            InpVwapC      = false;                   // VWAP
 input string          SepD          = "";                      // ---- Session D ----
 input bool            InpShowD      = false;                   // Show Session D
-input string          InpTimeD      = "21:00-06:00";           // Session time (by broker time):
+input string          InpTimeD      = "16:00-18:00";           // Session time (by broker time):
 input int             InpShiftD     = 0;                       // Shift at broker time (+/-) hour
-input bool            InpRangeD     = false;                   // Show Range Area and Max/Min
+input bool            InpRangeD     = true;                    // Show Range Area and Max/Min
 input bool            InpDescOnD    = true;                    // Show Description
 input string          InpDescD      = "Session D";             // Description
-input color           InpMainD      = clrGray;                 // Main Color
+input color           InpMainD      = clrGreen;                // Main Color
 input ENUM_TL_AREA    InpAreaD      = TL_AREA_OUTLINE;         // Area Visual
 input color           InpFillD      = clrNavy;                 // Fill Color
 input bool            InpMaxD       = false;                   // Show Max/Min
 input bool            InpTrendD     = false;                   // Trendline
 input bool            InpMeanD      = false;                   // Mean
 input bool            InpVwapD      = false;                   // VWAP
+input string          SepE          = "";                      // ---- Session E ----
+input bool            InpShowE      = false;                   // Show Session E
+input string          InpTimeE      = "19:00-20:00";           // Session time (by broker time):
+input int             InpShiftE     = 0;                       // Shift at broker time (+/-) hour
+input bool            InpRangeE     = true;                    // Show Range Area and Max/Min
+input bool            InpDescOnE    = true;                    // Show Description
+input string          InpDescE      = "Session E";             // Description
+input color           InpMainE      = clrAqua;                 // Main Color
+input ENUM_TL_AREA    InpAreaE      = TL_AREA_OUTLINE;         // Area Visual
+input color           InpFillE      = clrNavy;                 // Fill Color
+input bool            InpMaxE       = false;                   // Show Max/Min
+input bool            InpTrendE     = false;                   // Trendline
+input bool            InpMeanE      = false;                   // Mean
+input bool            InpVwapE      = false;                   // VWAP
+input string          SepF          = "";                      // ---- Session F ----
+input bool            InpShowF      = false;                   // Show Session F
+input string          InpTimeF      = "21:00-22:00";           // Session time (by broker time):
+input int             InpShiftF     = 0;                       // Shift at broker time (+/-) hour
+input bool            InpRangeF     = true;                    // Show Range Area and Max/Min
+input bool            InpDescOnF    = true;                    // Show Description
+input string          InpDescF      = "Session F";             // Description
+input color           InpMainF      = clrRed;                  // Main Color
+input ENUM_TL_AREA    InpAreaF      = TL_AREA_OUTLINE;         // Area Visual
+input color           InpFillF      = clrNavy;                 // Fill Color
+input bool            InpMaxF       = false;                   // Show Max/Min
+input bool            InpTrendF     = false;                   // Trendline
+input bool            InpMeanF      = false;                   // Mean
+input bool            InpVwapF      = false;                   // VWAP
+input string          SepG          = "";                      // ---- Session G ----
+input bool            InpShowG      = false;                   // Show Session G
+input string          InpTimeG      = "22:00-23:00";           // Session time (by broker time):
+input int             InpShiftG     = 0;                       // Shift at broker time (+/-) hour
+input bool            InpRangeG     = true;                    // Show Range Area and Max/Min
+input bool            InpDescOnG    = true;                    // Show Description
+input string          InpDescG      = "Session G";             // Description
+input color           InpMainG      = clrDodgerBlue;           // Main Color
+input ENUM_TL_AREA    InpAreaG      = TL_AREA_OUTLINE;         // Area Visual
+input color           InpFillG      = clrNavy;                 // Fill Color
+input bool            InpMaxG       = false;                   // Show Max/Min
+input bool            InpTrendG     = false;                   // Trendline
+input bool            InpMeanG      = false;                   // Mean
+input bool            InpVwapG      = false;                   // VWAP
 input string          SepAl         = "";                      // ---- Alerts | POI ----
 input ENUM_TL_AFREQ   InpFreq       = TL_AF_BAR;               // Alert frequency
 input bool            InpAlOF       = false;                   // OF
@@ -233,6 +275,7 @@ struct SSig
    double   tp2;
    datetime t;
    datetime obT;
+   int      ext;
   };
 
 int      g_seq = 0;
@@ -499,9 +542,12 @@ void BuildICM(const double &open[], const double &high[], const double &low[],
    g_hasIcm = true;
    datetime t1 = sw[a].t;
    datetime t2 = time[0] + (datetime)(15 * PeriodSeconds(_Period));
-   DrawTrend("IC", t1, g_ic, t2, g_ic, InpICColor, 1, ToStyle(InpICStyle));
+   int from = n - 8;
+   if(from < 0)
+      from = 0;
+   for(int i = from; i < n - 1; i++)
+      DrawTrend("IC", sw[i].t, sw[i].price, sw[i + 1].t, sw[i + 1].price, InpICColor, 1, ToStyle(InpICStyle));
    DrawTrend("ICM", t1, g_icm, t2, g_icm, InpICMColor, 1, ToStyle(InpICMStyle));
-   DrawLabel(t2, g_ic, "IC", InpICColor);
    DrawLabel(t2, g_icm, "ICM", InpICMColor);
    if(InpShowBase)
      {
@@ -1459,6 +1505,7 @@ void BuildSignals(const double &open[], const double &high[], const double &low[
       sigs[sn].tp2 = tp2;
       sigs[sn].t = time[i];
       sigs[sn].obT = time[zones[pick].shift];
+      sigs[sn].ext = zones[pick].ext;
       sn++;
      }
 
@@ -1507,11 +1554,17 @@ void BuildSignals(const double &open[], const double &high[], const double &low[
    if(InpAlertSignal && sn > 0 && sigs[sn - 1].shift == 1)
      {
       SSig last = sigs[sn - 1];
-      string side = (last.dir > 0 ? "BUY" : "SELL");
-      string msg = side + " " + _Symbol + " " + IntegerToString(last.pct)
-                   + "%  SL " + DoubleToString(last.sl, _Digits)
-                   + "  TP1 " + DoubleToString(last.tp1, _Digits)
-                   + "  TP2 " + DoubleToString(last.tp2, _Digits);
+      string side = (last.dir > 0 ? "ПОКУПКА" : "ПРОДАЖА");
+      string block = (last.ext == 1 ? "OB-EXT" : "OB-IDM");
+      string tf = EnumToString(_Period);
+      StringReplace(tf, "PERIOD_", "");
+      string msg = side + " " + _Symbol + " " + tf
+                   + ". Риск " + IntegerToString(last.pct) + "% обычной сделки."
+                   + " Вход " + DoubleToString(last.entry, _Digits)
+                   + ", стоп " + DoubleToString(last.sl, _Digits)
+                   + ", тейк 1:1 " + DoubleToString(last.tp1, _Digits)
+                   + ", дальний тейк " + DoubleToString(last.tp2, _Digits)
+                   + ". Блок " + block + ". Свеча закрыта, стрелка на графике.";
       Fire("SIG@" + IntegerToString((int)last.t), msg);
      }
   }
@@ -1745,6 +1798,12 @@ void Rebuild()
                InpMaxC, InpTrendC, InpMeanC, InpVwapC, open, high, low, close, vol, time, total);
    DrawSession("D", InpShowD, InpTimeD, InpShiftD, InpRangeD, InpDescOnD, InpDescD, InpMainD, InpAreaD, InpFillD,
                InpMaxD, InpTrendD, InpMeanD, InpVwapD, open, high, low, close, vol, time, total);
+   DrawSession("E", InpShowE, InpTimeE, InpShiftE, InpRangeE, InpDescOnE, InpDescE, InpMainE, InpAreaE, InpFillE,
+               InpMaxE, InpTrendE, InpMeanE, InpVwapE, open, high, low, close, vol, time, total);
+   DrawSession("F", InpShowF, InpTimeF, InpShiftF, InpRangeF, InpDescOnF, InpDescF, InpMainF, InpAreaF, InpFillF,
+               InpMaxF, InpTrendF, InpMeanF, InpVwapF, open, high, low, close, vol, time, total);
+   DrawSession("G", InpShowG, InpTimeG, InpShiftG, InpRangeG, InpDescOnG, InpDescG, InpMainG, InpAreaG, InpFillG,
+               InpMaxG, InpTrendG, InpMeanG, InpVwapG, open, high, low, close, vol, time, total);
   }
 
 void DrawLiveSmart()
