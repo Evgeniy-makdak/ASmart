@@ -516,6 +516,15 @@ void DrawPoint(const datetime t, const double p, const color c)
    ObjectSetInteger(0, name, OBJPROP_BACK, false);
   }
 
+// Кружок + подпись BoS/ChoCh на экстремуме свечи пробоя — как на эталоне.
+void DrawBreakMark(const datetime t, const double p, const string lab, const color c)
+  {
+   if(t <= 0 || lab == "")
+      return;
+   DrawPoint(t, p, c);
+   DrawText(t, p, lab, c);
+  }
+
 //+------------------------------------------------------------------+
 //| Свинги. п. 4–5: максимумы/минимумы структуры, точки.             |
 //| Длина плеча в PDF не задана: ext_idm = 8, int_idm = 4,           |
@@ -810,7 +819,7 @@ void BuildFromSwings(const double &open[], const double &high[], const double &l
                  {
                   DrawTrend(inner ? "IBRK" : "BRK", lastHT, lastH, time[br], lastH, col, (choch ? 2 : 1),
                             sweptOnly ? STYLE_DOT : STYLE_SOLID);
-                  DrawText(time[br], lastH, lab, InpOBTextColor);
+                  DrawBreakMark(time[br], high[br], lab, col);
                   PushZone(lastH, lastH + 5 * _Point, lab + " " + IntegerToString((int)time[br]), al);
                  }
                if(!sweptOnly && (InpShowOBEXT || InpShowPrevOB))
@@ -944,7 +953,7 @@ void BuildFromSwings(const double &open[], const double &high[], const double &l
                  {
                   DrawTrend(inner ? "IBRK" : "BRK", lastLT, lastL, time[br], lastL, col, (choch ? 2 : 1),
                             sweptOnly ? STYLE_DOT : STYLE_SOLID);
-                  DrawText(time[br], lastL, lab, InpOBTextColor);
+                  DrawBreakMark(time[br], low[br], lab, col);
                   PushZone(lastL, lastL - 5 * _Point, lab + " " + IntegerToString((int)time[br]), al);
                  }
                if(!sweptOnly && (InpShowOBEXT || InpShowPrevOB))
