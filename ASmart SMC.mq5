@@ -13,13 +13,20 @@
 #property version   "1.04"
 #property description "ASmart SMC 1.04 — Market Structure (SMC/ICT)"
 #property description "BOS, ChoCh, IDM, ордер-блоки, FVG, HTF, дашборд, Premium/Discount."
-#property indicator_chart_window
-#property indicator_buffers 1
+// Окно SMC_Trend — отдельная полоса под графиком, как на эталоне.
+// Разметка структуры остаётся объектами главного окна (подокно 0).
+#property indicator_separate_window
+#property indicator_buffers 2
 #property indicator_plots   1
-#property indicator_type1   DRAW_NONE
-#property indicator_label1  "ASmart SMC"
+#property indicator_type1   DRAW_COLOR_ARROW
+#property indicator_color1  clrTeal, clrFireBrick
+#property indicator_width1  2
+#property indicator_label1  "SMC_Trend"
+#property indicator_minimum 0.0
+#property indicator_maximum 2.0
 
-double g_dummy[];
+double g_trLine[];
+double g_trColor[];
 
 //------------------------------------------------------------------
 // Перечисления. Подписи enum — это значения в колонке «Значение» MT5.
@@ -219,6 +226,9 @@ string  g_fired[];
 int     g_seq = 0;
 datetime g_lastBar = 0;
 color    g_chartBg = clrNONE;
+datetime g_segT[];
+int      g_segD[];
+int      g_segN = 0;
 int     g_trend = 0;       // 1 long, -1 short, 0 flat — текущая структура
 int     g_innerTrend = 0;
 double  g_lastHigh = 0.0;
@@ -387,7 +397,8 @@ void DrawTrend(const string tag, const datetime t1, const double p1,
 
 void DrawRect(const string tag, const datetime t1, const double p1,
               const datetime t2, const double p2,
-              const color c, const bool fill, const bool alert, const string zkey)
+              const color c, const bool fill, const bool alert, const string zkey,
+              const ENUM_LINE_STYLE st = STYLE_SOLID)
   {
    if(t1 <= 0 || t2 <= 0)
       return;
@@ -404,7 +415,7 @@ void DrawRect(const string tag, const datetime t1, const double p1,
      }
    if(!ObjectCreate(0, name, OBJ_RECTANGLE, 0, a, pa, b, pb))
       return;
-   StyleObj(name, c, 1, STYLE_SOLID, true);
+   StyleObj(name, c, 1, st, true);
    ObjectSetInteger(0, name, OBJPROP_FILL, fill);
    if(fill)
       ObjectSetInteger(0, name, OBJPROP_COLOR, ColorToARGB(c, 70));
@@ -427,6 +438,20 @@ void ApplyText(const string name, const string text, const color c)
 string DirLabel(const bool bull, const string name)
   {
    return (bull ? "бычий " : "медвежий ") + name;
+  }
+
+void NoteSeg(const bool inner, const datetime t, const int dir)
+  {
+   if(inner || t <= 0 || dir == 0)
+      return;
+   if(g_segN > 0 && g_segD[g_segN - 1] == dir)
+      return;
+   int n = g_segN;
+   ArrayResize(g_segT, n + 1);
+   ArrayResize(g_segD, n + 1);
+   g_segT[n] = t;
+   g_segD[n] = dir;
+   g_segN = n + 1;
   }
 
 color ChartInk()
@@ -633,6 +658,21 @@ datetime ZoneEnd(const double &close[], const datetime &time[], const int ob,
    return right;
   }
 
+// Правый край зоны: до пробоя границы, активная зона чуть уходит вправо.
+datetime ObRight(const double &close[], const datetime &time[], const int ob,
+                 const bool demand, const double edge)
+  {
+   if(ob < 0)
+      return 0;
+   datetime rt = ZoneEnd(close, time, ob, demand, edge);
+   datetime now = time[0];
+   if(rt >= now)
+      rt = now + (datetime)(18 * PeriodSeconds(_Period));
+   if(rt <= time[ob])
+      rt = time[ob] + (datetime)PeriodSeconds(_Period);
+   return rt;
+  }
+
 //+------------------------------------------------------------------+
 //| Структура одного набора свингов.                                  |
 //| п. 5 IDM: первый откат после BOS; структура подтверждается,       |
@@ -704,9 +744,9 @@ void BuildFromSwings(const double &open[], const double &high[], const double &l
                  {
                   string ol = DirLabel(false, inner ? "i-OB-IDM" : "OB-IDM");
                   bool oa = inner ? InpAlIOBIDM : InpAlOBIDM;
-                  datetime rt = ZoneEnd(close, time, sw[i].shift, false, high[sw[i].shift]);
+                  datetime rt = ObRight(close, time, sw[i].shift, false, high[sw[i].shift]);
                   DrawRect(inner ? "IOBI" : "OBI", time[sw[i].shift], high[sw[i].shift], rt, low[sw[i].shift],
-                           InpColBearOB, true, oa, ol + " " + IntegerToString((int)sw[i].t));
+                           clrTan, false, oa, ol + " " + IntegerToString((int)sw[i].t), STYLE_DASH);
                   DrawZoneLabel(time[sw[i].shift], rt, high[sw[i].shift], low[sw[i].shift], ol);
                  }
                if(outside && !extMode)
@@ -764,6 +804,7 @@ void BuildFromSwings(const double &open[], const double &high[], const double &l
                   trend = 1;
                   waitBullIDM = true;
                   waitBearIDM = false;
+                  NoteSeg(inner, time[br], 1);
                  }
                if(show)
                  {
@@ -784,10 +825,10 @@ void BuildFromSwings(const double &open[], const double &high[], const double &l
                      bool oal = inner ? InpAlIOBEXT : InpAlOBEXT;
                      if(InpShowOBEXT)
                        {
-                        datetime rt = ZoneEnd(close, time, ob, true, low[ob]);
-                        DrawRect(inner ? "IOBX" : "OBX", time[ob], high[ob], rt, low[ob],
-                                 InpColBull, true, oal, olab + " " + IntegerToString((int)time[ob]));
-                        DrawZoneLabel(time[ob], rt, high[ob], low[ob], olab);
+                        datetime zrt = ObRight(close, time, ob, true, low[ob]);
+                        DrawRect(inner ? "IOBX" : "OBX", time[ob], high[ob], zrt, low[ob],
+                                 clrTan, false, oal, olab + " " + IntegerToString((int)time[ob]), STYLE_DASH);
+                        DrawZoneLabel(time[ob], zrt, high[ob], low[ob], olab);
                        }
                      if(prevObIndex >= 0 && prevObIndex < total && InpShowPrevOB)
                        {
@@ -829,9 +870,9 @@ void BuildFromSwings(const double &open[], const double &high[], const double &l
                  {
                   string ol = DirLabel(true, inner ? "i-OB-IDM" : "OB-IDM");
                   bool oa = inner ? InpAlIOBIDM : InpAlOBIDM;
-                  datetime rt = ZoneEnd(close, time, sw[i].shift, true, low[sw[i].shift]);
+                  datetime rt = ObRight(close, time, sw[i].shift, true, low[sw[i].shift]);
                   DrawRect(inner ? "IOBI" : "OBI", time[sw[i].shift], high[sw[i].shift], rt, low[sw[i].shift],
-                           InpColBullOB, true, oa, ol + " " + IntegerToString((int)sw[i].t));
+                           clrTan, false, oa, ol + " " + IntegerToString((int)sw[i].t), STYLE_DASH);
                   DrawZoneLabel(time[sw[i].shift], rt, high[sw[i].shift], low[sw[i].shift], ol);
                  }
                // свип IDM: более новый бар проколол минимум IDM
@@ -897,6 +938,7 @@ void BuildFromSwings(const double &open[], const double &high[], const double &l
                   trend = -1;
                   waitBearIDM = true;
                   waitBullIDM = false;
+                  NoteSeg(inner, time[br], -1);
                  }
                if(show)
                  {
@@ -914,10 +956,10 @@ void BuildFromSwings(const double &open[], const double &high[], const double &l
                        {
                         string olab = DirLabel(false, inner ? "i-OB-EXT" : "OB-EXT");
                         bool oal = inner ? InpAlIOBEXT : InpAlOBEXT;
-                        datetime rt = ZoneEnd(close, time, ob, false, high[ob]);
-                        DrawRect(inner ? "IOBX" : "OBX", time[ob], high[ob], rt, low[ob],
-                                 InpColBear, true, oal, olab + " " + IntegerToString((int)time[ob]));
-                        DrawZoneLabel(time[ob], rt, high[ob], low[ob], olab);
+                        datetime zrt = ObRight(close, time, ob, false, high[ob]);
+                        DrawRect(inner ? "IOBX" : "OBX", time[ob], high[ob], zrt, low[ob],
+                                 clrTan, false, oal, olab + " " + IntegerToString((int)time[ob]), STYLE_DASH);
+                        DrawZoneLabel(time[ob], zrt, high[ob], low[ob], olab);
                        }
                      if(prevObIndex >= 0 && InpShowPrevOB)
                        {
@@ -1122,6 +1164,9 @@ void Rebuild()
    g_evN = 0;
    ArrayResize(g_ev, 0);
    g_zoneN = 0;
+   g_segN = 0;
+   ArrayResize(g_segT, 0);
+   ArrayResize(g_segD, 0);
    ArrayResize(g_zones, 0);
    g_trend = 0;
    g_innerTrend = 0;
@@ -1418,10 +1463,53 @@ void DrawDashboard()
   }
 
 //+------------------------------------------------------------------+
-//| Фон по структуре и разделитель тренда. п. 5 TREND | VISUAL.      |
-//| Верхняя полоса — основной тренд, нижняя — внутренний.            |
-//| Разрыв нижней полосы = внутренний тренд не определён.            |
+//| Фон по структуре. Точки тренда — буфер окна SMC_Trend.            |
+//| Если индикатор ещё сидит в окне графика, точки рисуются у низа.  |
 //+------------------------------------------------------------------+
+void PaintTrend(const int rates_total)
+  {
+   if(rates_total <= 0)
+      return;
+   for(int i = rates_total - 1; i >= 0; i--)
+     {
+      g_trLine[i] = EMPTY_VALUE;
+      g_trColor[i] = 0.0;
+     }
+   // В окне графика значение 1.0 легло бы на цену. Точки там рисует DrawChrome.
+   if(!InpShowDivider || g_segN <= 0 || ChartWindowFind() <= 0)
+      return;
+   for(int i = rates_total - 1; i >= 0; i--)
+     {
+      datetime t = iTime(_Symbol, _Period, i);
+      if(t <= 0)
+         continue;
+      int dir = g_segD[0];
+      for(int s = 0; s < g_segN; s++)
+        {
+         if(g_segT[s] <= t)
+            dir = g_segD[s];
+         else
+            break;
+        }
+      if(dir == 0)
+         continue;
+      g_trLine[i] = 1.0;
+      g_trColor[i] = (dir > 0 ? 0.0 : 1.0);
+     }
+  }
+
+void FitTrendWindow()
+  {
+   static bool done = false;
+   if(done)
+      return;
+   int w = ChartWindowFind();
+   if(w <= 0)
+      return;
+   ChartSetInteger(0, CHART_HEIGHT_IN_PIXELS, w, 32);
+   done = true;
+  }
+
 void DrawChrome()
   {
    ObjectsDeleteAll(0, MH_PREFIX + "C_");
@@ -1445,25 +1533,29 @@ void DrawChrome()
          ObjectSetInteger(0, name, OBJPROP_HIDDEN, true);
         }
      }
-   if(InpShowDivider && g_trend != 0)
+   // Запасной ряд точек, пока индикатор не перенесён в отдельное окно.
+   if(InpShowDivider && g_segN > 0 && ChartWindowFind() <= 0)
      {
-      int w = (int)ChartGetInteger(0, CHART_WIDTH_IN_PIXELS);
-      int dots = w / 7;
-      if(dots < 8)
-         dots = 8;
-      if(dots > 240)
-         dots = 240;
-      string row = "";
-      for(int i = 0; i < dots; i++)
-         row += "●";
-      color dc = (g_trend > 0 ? InpColBull : InpColBear);
-      string word = (g_trend > 0 ? "покупка " : "продажа ");
-      MakeLabel(MH_PREFIX + "C_TD1", word + row, CORNER_LEFT_LOWER, 4, 18, dc, 8, clrNONE);
-      if(g_innerTrend != 0)
+      double pmin = ChartGetDouble(0, CHART_PRICE_MIN, 0);
+      double pmax = ChartGetDouble(0, CHART_PRICE_MAX, 0);
+      if(pmax > pmin)
         {
-         color ic = (g_innerTrend > 0 ? InpColBull : InpColBear);
-         string word2 = (g_innerTrend > 0 ? "покупка " : "продажа ");
-         MakeLabel(MH_PREFIX + "C_TD2", word2 + row, CORNER_LEFT_LOWER, 4, 8, ic, 8, clrNONE);
+         double y = pmin + (pmax - pmin) * 0.035;
+         datetime now = iTime(_Symbol, _Period, 0);
+         datetime t0 = iTime(_Symbol, _Period, (int)ChartGetInteger(0, CHART_VISIBLE_BARS) + 5);
+         if(t0 <= 0)
+            t0 = g_segT[0];
+         for(int s = 0; s < g_segN; s++)
+           {
+            datetime a = g_segT[s];
+            datetime b = (s + 1 < g_segN ? g_segT[s + 1] : now);
+            if(s == 0 && t0 < a)
+               a = t0;
+            string name = MH_PREFIX + "C_TS" + IntegerToString(s);
+            if(!ObjectCreate(0, name, OBJ_TREND, 0, a, y, b, y))
+               continue;
+            StyleObj(name, (g_segD[s] > 0 ? InpColBull : InpColBear), 3, STYLE_DOT, false);
+           }
         }
      }
   }
@@ -1481,11 +1573,16 @@ void CheckAlerts()
 //+------------------------------------------------------------------+
 int OnInit()
   {
-   IndicatorSetString(INDICATOR_SHORTNAME, "ASmart SMC");
+   IndicatorSetString(INDICATOR_SHORTNAME, "SMC_Trend");
    ObjectsDeleteAll(0, "MHSMC_");
-   SetIndexBuffer(0, g_dummy, INDICATOR_DATA);
+   SetIndexBuffer(0, g_trLine, INDICATOR_DATA);
+   SetIndexBuffer(1, g_trColor, INDICATOR_COLOR_INDEX);
+   ArraySetAsSeries(g_trLine, true);
+   ArraySetAsSeries(g_trColor, true);
+   PlotIndexSetInteger(0, PLOT_ARROW, 159);
+   PlotIndexSetInteger(0, PLOT_LINE_COLOR, 0, InpColBull);
+   PlotIndexSetInteger(0, PLOT_LINE_COLOR, 1, InpColBear);
    PlotIndexSetDouble(0, PLOT_EMPTY_VALUE, EMPTY_VALUE);
-   ArraySetAsSeries(g_dummy, true);
 
    // п. 2 / п. 5: проверка входов
    if(InpHistBars < 0)
@@ -1534,9 +1631,6 @@ int OnCalculate(const int rates_total,
    if(begin < 0 && price[rates_total - 1] == 0.0 && rates_total < 0)
       return 0;
 
-   if(prev_calculated == 0)
-      ArrayInitialize(g_dummy, EMPTY_VALUE);
-
    datetime bar = iTime(_Symbol, _Period, 0);
    color bg = (color)ChartGetInteger(0, CHART_COLOR_BACKGROUND);
    bool rebuild = (prev_calculated == 0 || bar != g_lastBar || bg != g_chartBg);
@@ -1548,6 +1642,8 @@ int OnCalculate(const int rates_total,
       DrawPD();
       RefreshDash();
      }
+   PaintTrend(rates_total);
+   FitTrendWindow();
    DrawLive();
    DrawDashboard();
    DrawChrome();

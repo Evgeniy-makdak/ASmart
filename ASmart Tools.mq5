@@ -12,12 +12,19 @@
 #property version   "1.04"
 #property description "ASmart Tools 1.04 — POI, FVG, SCOB, Smart Point, Sessions"
 #property indicator_chart_window
-#property indicator_buffers 1
+#property indicator_buffers 5
 #property indicator_plots   1
-#property indicator_type1   DRAW_NONE
+#property indicator_type1   DRAW_COLOR_CANDLES
+#property indicator_color1  clrDeepSkyBlue, clrMagenta, clrLimeGreen, clrCrimson, clrDodgerBlue, clrDarkOrchid
 #property indicator_label1  "ASmart Tools"
 
-double g_dummy[];
+double g_o[];
+double g_h[];
+double g_l[];
+double g_c[];
+double g_col[];
+int    g_paint[];
+int    g_paintN = 0;
 
 enum ENUM_TL_TSIZE
   {
@@ -105,13 +112,13 @@ input bool            InpPDDiv      = false;                   // Show previous 
 input color           InpPDH        = clrAqua;                 // PDH color
 input color           InpPDL        = clrAqua;                 // PDL color
 input string          SepWick       = "";                      // ---- High Wick ----
-input bool            InpShowWick   = false;                   // Show High Wick ?
+input bool            InpShowHighWick = true;                  // Show High Wick ?
 input double          InpWickThr    = 0.4;                     // Shadow threshold (%)
 input bool            InpWickClose  = true;                    // Use close condition ?
 input color           InpWickUp     = clrDeepSkyBlue;          // Large upper shadow color
 input color           InpWickDn     = clrMagenta;              // Large lower shadow color
 input string          SepSP         = "";                      // ---- Smart Point ----
-input bool            InpShowSP     = false;                   // Show Smart Point ?
+input bool            InpShowSmart  = true;                    // Show Smart Point ?
 input ENUM_TL_PRESET  InpPreset     = TL_PRESET_DEFAULT;       // Preconfigured Input Preset
 input bool            InpLQD        = false;                   // Enable Filter LQD Sweep
 input int             InpBoxWidth   = 2;                       // Box Border Width (1-5)
@@ -929,17 +936,61 @@ void BuildPD(const datetime &time[], const int total)
      }
   }
 
+// Индекс цвета свечи: 0 голубая тень, 1 малиновая, 2–5 сигнальные.
+void ClearPaint(const int n)
+  {
+   ArrayResize(g_paint, n);
+   g_paintN = n;
+   for(int i = 0; i < n; i++)
+      g_paint[i] = -1;
+  }
+
+void MarkPaint(const int shift, const int col)
+  {
+   if(shift < 0 || shift >= g_paintN || col < 0)
+      return;
+   if(g_paint[shift] >= 0)
+      return;
+   g_paint[shift] = col;
+  }
+
+void PaintCandles(const int rates_total)
+  {
+   for(int i = 0; i < rates_total; i++)
+     {
+      g_o[i] = EMPTY_VALUE;
+      g_h[i] = EMPTY_VALUE;
+      g_l[i] = EMPTY_VALUE;
+      g_c[i] = EMPTY_VALUE;
+      g_col[i] = 0.0;
+     }
+   int n = g_paintN;
+   if(n > rates_total)
+      n = rates_total;
+   for(int i = 0; i < n; i++)
+     {
+      if(g_paint[i] < 0)
+         continue;
+      g_o[i] = iOpen(_Symbol, _Period, i);
+      g_h[i] = iHigh(_Symbol, _Period, i);
+      g_l[i] = iLow(_Symbol, _Period, i);
+      g_c[i] = iClose(_Symbol, _Period, i);
+      g_col[i] = (double)g_paint[i];
+     }
+  }
+
 //+------------------------------------------------------------------+
 //| High Wick. п. 5: доля тени от диапазона свечи, порог 0.3–0.5.    |
 //| Условие закрытия: покупка — бычья свеча, продажа — медвежья.     |
+//| Цвет пишется в саму свечу, а не в прямоугольник рядом с ней.     |
 //+------------------------------------------------------------------+
 void BuildWick(const double &open[], const double &high[], const double &low[], const double &close[],
                const datetime &time[], const int total)
   {
-   if(!InpShowWick)
+   if(!InpShowHighWick)
       return;
    int drawn = 0;
-   for(int i = total - 1; i >= 1; i--)
+   for(int i = total - 1; i >= 0; i--)
      {
       double range = high[i] - low[i];
       if(range <= 0.0)
@@ -964,8 +1015,7 @@ void BuildWick(const double &open[], const double &high[], const double &low[], 
         }
       if(!up && !dn)
          continue;
-      color col = up ? InpWickUp : InpWickDn;
-      DrawRect("WICK", time[i], high[i], time[i], low[i], col, false, 2);
+      MarkPaint(i, up ? 0 : 1);
       drawn++;
       if(drawn >= 200)
          break;
@@ -1016,7 +1066,7 @@ int SmartDir(const double &open[], const double &high[], const double &low[], co
 void BuildSmart(const double &open[], const double &high[], const double &low[], const double &close[],
                 const datetime &time[], const int total, const int fromShift, const int toShift)
   {
-   if(!InpShowSP)
+   if(!InpShowSmart)
       return;
    if(InpPreset != TL_PRESET_DEFAULT)
       return;
@@ -1052,7 +1102,21 @@ void BuildSmart(const double &open[], const double &high[], const double &low[],
          cap = "Velocity";
         }
       datetime t2 = (i > 0 ? time[i - 1] : time[i] + PeriodSeconds(_Period));
-      DrawRect("SP", time[i], high[i], t2, low[i], col, false, g_boxW);
+      string sp = NextName("SP");
+      if(ObjectCreate(0, sp, OBJ_RECTANGLE, 0, time[i], high[i], t2, low[i]))
+        {
+         StyleObj(sp, col, g_boxW, STYLE_SOLID, false);
+         ObjectSetInteger(0, sp, OBJPROP_FILL, false);
+         ObjectSetInteger(0, sp, OBJPROP_BACK, false);
+        }
+      int paint = 4;
+      if(dir == 2)
+         paint = 2;
+      else if(dir == -2)
+         paint = 3;
+      else if(dir == -1)
+         paint = 5;
+      MarkPaint(i, paint);
       DrawLabel(time[i], high[i], cap, col);
       drawn++;
       if(drawn >= 250)
@@ -1266,6 +1330,8 @@ double FarTarget(const double &high[], const double &low[], const datetime &time
    bool found = false;
    for(int i = 0; i < n; i++)
      {
+      if(sw[i].shift < signalShift + 8)
+         continue;
       if(dir > 0 && sw[i].type == 1 && sw[i].price > tp1 && sw[i].price <= cap)
         {
          if(!found || sw[i].price < best)
@@ -1762,6 +1828,7 @@ void Rebuild()
    int total = ArraySize(close);
    if(total < 30)
       return;
+   ClearPaint(total);
 
    BuildICM(open, high, low, time, total);
 
@@ -1812,7 +1879,7 @@ void Rebuild()
 void DrawLiveSmart()
   {
    ObjectsDeleteAll(0, TL_PREFIX + "L_");
-   if(!InpShowSP)
+   if(!InpShowSmart)
       return;
    double open[], high[], low[], close[];
    long vol[];
@@ -1830,6 +1897,14 @@ void DrawLiveSmart()
       col = InpSmcBear;
    else if(dir == -1)
       col = InpVelBear;
+   int livePaint = 4;
+   if(dir == 2)
+      livePaint = 2;
+   else if(dir == -2)
+      livePaint = 3;
+   else if(dir == -1)
+      livePaint = 5;
+   MarkPaint(0, livePaint);
    string name = TL_PREFIX + "L_SP";
    datetime t1 = time[0];
    datetime t2 = t1 + PeriodSeconds(_Period);
@@ -1844,9 +1919,23 @@ int OnInit()
   {
    IndicatorSetString(INDICATOR_SHORTNAME, "ASmart Tools");
    ObjectsDeleteAll(0, "MHTOOLS_");
-   SetIndexBuffer(0, g_dummy, INDICATOR_DATA);
+   SetIndexBuffer(0, g_o, INDICATOR_DATA);
+   SetIndexBuffer(1, g_h, INDICATOR_DATA);
+   SetIndexBuffer(2, g_l, INDICATOR_DATA);
+   SetIndexBuffer(3, g_c, INDICATOR_DATA);
+   SetIndexBuffer(4, g_col, INDICATOR_COLOR_INDEX);
+   ArraySetAsSeries(g_o, true);
+   ArraySetAsSeries(g_h, true);
+   ArraySetAsSeries(g_l, true);
+   ArraySetAsSeries(g_c, true);
+   ArraySetAsSeries(g_col, true);
+   PlotIndexSetInteger(0, PLOT_LINE_COLOR, 0, InpWickUp);
+   PlotIndexSetInteger(0, PLOT_LINE_COLOR, 1, InpWickDn);
+   PlotIndexSetInteger(0, PLOT_LINE_COLOR, 2, InpSmcBull);
+   PlotIndexSetInteger(0, PLOT_LINE_COLOR, 3, InpSmcBear);
+   PlotIndexSetInteger(0, PLOT_LINE_COLOR, 4, InpVelBull);
+   PlotIndexSetInteger(0, PLOT_LINE_COLOR, 5, InpVelBear);
    PlotIndexSetDouble(0, PLOT_EMPTY_VALUE, EMPTY_VALUE);
-   ArraySetAsSeries(g_dummy, true);
 
    if(InpHistBars < 0)
      {
@@ -1892,9 +1981,6 @@ int OnCalculate(const int rates_total,
       return 0;
    if(begin < 0 && rates_total > 1 && price[rates_total - 1] == EMPTY_VALUE && rates_total < 0)
       return 0;
-   if(prev_calculated == 0)
-      ArrayInitialize(g_dummy, EMPTY_VALUE);
-
    datetime bar = iTime(_Symbol, _Period, 0);
    if(prev_calculated == 0 || bar != g_lastBar)
      {
@@ -1902,6 +1988,7 @@ int OnCalculate(const int rates_total,
       Rebuild();
      }
    DrawLiveSmart();
+   PaintCandles(rates_total);
    if(InpFreq == TL_AF_BAR || prev_calculated == 0 || bar == g_lastBar)
       CheckLevelAlerts();
    ChartRedraw(0);
