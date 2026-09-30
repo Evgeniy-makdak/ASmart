@@ -106,6 +106,9 @@ input ENUM_MH_TSIZE   InpTextSize      = MH_TS_TINY;                 // Text Siz
 input bool            InpShowOBText    = true;                       // Show order block text?
 input color           InpOBTextColor   = clrLightSteelBlue;          // Order block text color
 input int             InpPtTransp      = 60;                         // Structure Points Transparency (0 - 100)
+input bool            InpFadeOld       = true;                       // Fade old objects by age ?
+input int             InpFadeStartHours= 4;                          // Start fading after N hours
+input int             InpFadeGoneHours = 48;                         // Invisible after N hours
 input string          SepCharts        = "";                         // ---- SMC | Charts Controls ----
 input bool            InpShowPoints    = false;                      // Structure Points
 input bool            InpShowIDM       = true;                       // IDM
@@ -373,6 +376,88 @@ void StyleObj(const string name, const color c, const int width, const ENUM_LINE
    ObjectSetInteger(0, name, OBJPROP_HIDDEN, true);
    ObjectSetInteger(0, name, OBJPROP_RAY_RIGHT, false);
    ObjectSetInteger(0, name, OBJPROP_RAY_LEFT, false);
+  }
+
+// Старые метки тускнеют к фону графика (не ARGB — в MT5 он почти не виден).
+color BlendToBg(const color c, const double fadeK)
+  {
+   double k = fadeK;
+   if(k < 0.0)
+      k = 0.0;
+   if(k > 1.0)
+      k = 1.0;
+   color bg = (color)ChartGetInteger(0, CHART_COLOR_BACKGROUND);
+   int r1 = (int)(c & 0xFF);
+   int g1 = (int)((c >> 8) & 0xFF);
+   int b1 = (int)((c >> 16) & 0xFF);
+   int r2 = (int)(bg & 0xFF);
+   int g2 = (int)((bg >> 8) & 0xFF);
+   int b2 = (int)((bg >> 16) & 0xFF);
+   int r = (int)MathRound(r1 + (r2 - r1) * k);
+   int g = (int)MathRound(g1 + (g2 - g1) * k);
+   int b = (int)MathRound(b1 + (b2 - b1) * k);
+   return (color)(r | (g << 8) | (b << 16));
+  }
+
+void FadeAgedObjects(const string prefix)
+  {
+   if(!InpFadeOld || InpFadeGoneHours <= 0)
+      return;
+   int startH = InpFadeStartHours;
+   if(startH < 0)
+      startH = 0;
+   int goneH = InpFadeGoneHours;
+   if(goneH <= startH)
+      goneH = startH + 1;
+   datetime now = TimeCurrent();
+   int total = ObjectsTotal(0, 0, -1);
+   for(int i = total - 1; i >= 0; i--)
+     {
+      string name = ObjectName(0, i, 0, -1);
+      if(StringFind(name, prefix) != 0)
+         continue;
+      long typ = ObjectGetInteger(0, name, OBJPROP_TYPE);
+      if(typ == OBJ_LABEL || typ == OBJ_RECTANGLE_LABEL || typ == OBJ_BITMAP_LABEL)
+         continue;
+      datetime t = (datetime)ObjectGetInteger(0, name, OBJPROP_TIME, 0);
+      if(t <= 0)
+         t = (datetime)ObjectGetInteger(0, name, OBJPROP_TIME);
+      if(typ == OBJ_TREND || typ == OBJ_RECTANGLE)
+        {
+         datetime t2 = (datetime)ObjectGetInteger(0, name, OBJPROP_TIME, 1);
+         // возраст по более старому краю объекта
+         if(t2 > 0 && t2 < t)
+            t = t2;
+        }
+      if(t <= 0)
+         continue;
+      double hours = (double)(now - t) / 3600.0;
+      if(hours < (double)startH)
+        {
+         ObjectSetInteger(0, name, OBJPROP_TIMEFRAMES, OBJ_ALL_PERIODS);
+         continue;
+        }
+      if(hours >= (double)goneH)
+        {
+         ObjectSetInteger(0, name, OBJPROP_TIMEFRAMES, OBJ_NO_PERIODS);
+         continue;
+        }
+      ObjectSetInteger(0, name, OBJPROP_TIMEFRAMES, OBJ_ALL_PERIODS);
+      double k = (hours - (double)startH) / (double)(goneH - startH);
+      // ускоренный старт затухания: кривая k^0.7
+      k = MathPow(k, 0.7);
+      if(k > 0.92)
+        {
+         ObjectSetInteger(0, name, OBJPROP_TIMEFRAMES, OBJ_NO_PERIODS);
+         continue;
+        }
+      color c = (color)ObjectGetInteger(0, name, OBJPROP_COLOR);
+      color rgb = (color)(c & 0x00FFFFFF);
+      ObjectSetInteger(0, name, OBJPROP_COLOR, BlendToBg(rgb, k));
+      // текст гасим раньше линий
+      if(typ == OBJ_TEXT && k > 0.55)
+         ObjectSetInteger(0, name, OBJPROP_TIMEFRAMES, OBJ_NO_PERIODS);
+     }
   }
 
 void DrawTrend(const string tag, const datetime t1, const double p1,
@@ -1656,6 +1741,8 @@ int OnCalculate(const int rates_total,
    DrawLive();
    DrawDashboard();
    DrawChrome();
+   if(rebuild)
+      FadeAgedObjects(MH_PREFIX);
    CheckAlerts();
    ChartRedraw(0);
    return rates_total;

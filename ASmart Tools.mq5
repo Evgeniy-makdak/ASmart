@@ -9,8 +9,9 @@
 //+------------------------------------------------------------------+
 #property copyright "Copyright © 2026, Evgeniy Acteck"
 #property link      "mailto:makdak23@mail.ru"
-#property version   "1.04"
-#property description "ASmart Tools 1.04 — POI, FVG, SCOB, Smart Point, Sessions"
+#property version   "1.05"
+#property description "ASmart Tools 1.05 — вход без перерисовки, фильтры, журнал"
+#property description "POI, FVG, SCOB, Smart Point, Sessions, News filter"
 #property indicator_chart_window
 #property indicator_buffers 5
 #property indicator_plots   1
@@ -131,6 +132,21 @@ input color           InpSmcBear    = clrCrimson;              // SMC Bearish Co
 input string          SepSig        = "";                      // ---- Entry signal ----
 input bool            InpShowSignal = true;                    // Show entry signal ?
 input bool            InpAlertSignal= true;                    // Alert on candle close ?
+input bool            InpFreezeSig  = true;                    // Freeze signals (no repaint) ?
+input bool            InpShowReject = true;                    // Show rejected arrows with comment ?
+input int             InpImpulseBars= 5;                       // Impulse lookback (bars)
+input double          InpImpulseATR = 1.5;                     // Impulse vs ATR (OB-IDM block)
+input double          InpMinStopSpr = 2.0;                     // Min stop = N * spread
+input double          InpMinStopATR = 0.0;                     // Min stop = N * ATR (0=off)
+input bool            InpNewsFilter = true;                    // Block around high-impact news ?
+input int             InpNewsMins   = 30;                      // News window +/- minutes
+input bool            InpJournal    = true;                    // Write journal CSV ?
+input double          InpFarMinR    = 2.0;                     // Far TP min R (fallback 1:N)
+input double          InpFarMaxR    = 5.0;                     // Far TP max R search
+input bool            InpFarDynamic = true;                    // Update far TP with market ?
+input bool            InpFadeOld    = true;                    // Fade old objects by age ?
+input int             InpFadeStartHours = 4;                   // Start fading after N hours
+input int             InpFadeGoneHours  = 48;                  // Invisible after N hours
 input string          SepA          = "";                      // ---- Session A ----
 input bool            InpShowA      = false;                   // Show Session A
 input string          InpTimeA      = "08:00-12:00";           // Session time (by broker time):
@@ -284,11 +300,35 @@ struct SSig
    datetime t;
    datetime obT;
    int      ext;
+   int      sdir;      // SmartDir raw: ±1 velocity, ±2 SMC
+   bool     allow;     // true = открывать, false = не открывать
+   string   comment;   // текст у стрелки
+   double   resultR;   // факт в R после закрытия сценария
+  };
+
+struct SFrozen
+  {
+   datetime t;
+   int      dir;
+   int      pct;
+   double   entry;
+   double   sl;
+   double   tp1;
+   double   tp2;
+   int      ext;
+   int      sdir;
+   bool     allow;
+   string   comment;
+   double   resultR;
+   bool     done;      // сценарий уже закрыт по SL/TP2
   };
 
 int      g_seq = 0;
 datetime g_lastBar = 0;
 string   g_fired[];
+SFrozen  g_frozen[];
+int      g_frozenN = 0;
+bool     g_frozenLoaded = false;
 double   g_icm = 0.0;
 double   g_ic  = 0.0;
 bool     g_hasIcm = false;
@@ -334,6 +374,85 @@ void StyleObj(const string name, const color c, const int width, const ENUM_LINE
    ObjectSetInteger(0, name, OBJPROP_SELECTABLE, false);
    ObjectSetInteger(0, name, OBJPROP_HIDDEN, true);
    ObjectSetInteger(0, name, OBJPROP_RAY_RIGHT, false);
+  }
+
+// Старые метки тускнеют к фону графика (не ARGB — в MT5 он почти не виден).
+color BlendToBg(const color c, const double fadeK)
+  {
+   double k = fadeK;
+   if(k < 0.0)
+      k = 0.0;
+   if(k > 1.0)
+      k = 1.0;
+   color bg = (color)ChartGetInteger(0, CHART_COLOR_BACKGROUND);
+   int r1 = (int)(c & 0xFF);
+   int g1 = (int)((c >> 8) & 0xFF);
+   int b1 = (int)((c >> 16) & 0xFF);
+   int r2 = (int)(bg & 0xFF);
+   int g2 = (int)((bg >> 8) & 0xFF);
+   int b2 = (int)((bg >> 16) & 0xFF);
+   int r = (int)MathRound(r1 + (r2 - r1) * k);
+   int g = (int)MathRound(g1 + (g2 - g1) * k);
+   int b = (int)MathRound(b1 + (b2 - b1) * k);
+   return (color)(r | (g << 8) | (b << 16));
+  }
+
+void FadeAgedObjects(const string prefix)
+  {
+   if(!InpFadeOld || InpFadeGoneHours <= 0)
+      return;
+   int startH = InpFadeStartHours;
+   if(startH < 0)
+      startH = 0;
+   int goneH = InpFadeGoneHours;
+   if(goneH <= startH)
+      goneH = startH + 1;
+   datetime now = TimeCurrent();
+   int total = ObjectsTotal(0, 0, -1);
+   for(int i = total - 1; i >= 0; i--)
+     {
+      string name = ObjectName(0, i, 0, -1);
+      if(StringFind(name, prefix) != 0)
+         continue;
+      long typ = ObjectGetInteger(0, name, OBJPROP_TYPE);
+      if(typ == OBJ_LABEL || typ == OBJ_RECTANGLE_LABEL || typ == OBJ_BITMAP_LABEL)
+         continue;
+      datetime t = (datetime)ObjectGetInteger(0, name, OBJPROP_TIME, 0);
+      if(t <= 0)
+         t = (datetime)ObjectGetInteger(0, name, OBJPROP_TIME);
+      if(typ == OBJ_TREND || typ == OBJ_RECTANGLE)
+        {
+         datetime t2 = (datetime)ObjectGetInteger(0, name, OBJPROP_TIME, 1);
+         if(t2 > 0 && t2 < t)
+            t = t2;
+        }
+      if(t <= 0)
+         continue;
+      double hours = (double)(now - t) / 3600.0;
+      if(hours < (double)startH)
+        {
+         ObjectSetInteger(0, name, OBJPROP_TIMEFRAMES, OBJ_ALL_PERIODS);
+         continue;
+        }
+      if(hours >= (double)goneH)
+        {
+         ObjectSetInteger(0, name, OBJPROP_TIMEFRAMES, OBJ_NO_PERIODS);
+         continue;
+        }
+      ObjectSetInteger(0, name, OBJPROP_TIMEFRAMES, OBJ_ALL_PERIODS);
+      double k = (hours - (double)startH) / (double)(goneH - startH);
+      k = MathPow(k, 0.7);
+      if(k > 0.92)
+        {
+         ObjectSetInteger(0, name, OBJPROP_TIMEFRAMES, OBJ_NO_PERIODS);
+         continue;
+        }
+      color c = (color)ObjectGetInteger(0, name, OBJPROP_COLOR);
+      color rgb = (color)(c & 0x00FFFFFF);
+      ObjectSetInteger(0, name, OBJPROP_COLOR, BlendToBg(rgb, k));
+      if(typ == OBJ_TEXT && k > 0.55)
+         ObjectSetInteger(0, name, OBJPROP_TIMEFRAMES, OBJ_NO_PERIODS);
+     }
   }
 
 void DrawTrend(const string tag, const datetime t1, const double p1, const datetime t2, const double p2,
@@ -443,14 +562,21 @@ double ATRAt(const double &high[], const double &low[], const double &close[],
    return sum / period;
   }
 
-int CollectSwings(const double &high[], const double &low[], const datetime &time[],
-                  const int total, const int wing, SSwing &sw[])
+// Свинги, подтверждённые на закрытии бара asOf (без баров новее asOf).
+int CollectSwingsAsOf(const double &high[], const double &low[], const datetime &time[],
+                      const int total, const int wing, const int asOf, SSwing &sw[])
   {
    ArrayResize(sw, 0);
    int n = 0;
    if(total < wing * 2 + 5)
       return 0;
-   for(int i = total - 1 - wing; i >= wing; i--)
+   int newest = asOf + wing;
+   if(newest < wing)
+      newest = wing;
+   int oldest = total - 1 - wing;
+   if(oldest < newest)
+      return 0;
+   for(int i = oldest; i >= newest; i--)
      {
       bool isH = true;
       bool isL = true;
@@ -486,6 +612,12 @@ int CollectSwings(const double &high[], const double &low[], const datetime &tim
       n++;
      }
    return n;
+  }
+
+int CollectSwings(const double &high[], const double &low[], const datetime &time[],
+                  const int total, const int wing, SSwing &sw[])
+  {
+   return CollectSwingsAsOf(high, low, time, total, wing, 0, sw);
   }
 
 bool LoadSeries(const ENUM_TIMEFRAMES tf, const int need,
@@ -1166,12 +1298,12 @@ void PushZone(SZone &zones[], int &n, const int shift, const double top, const d
    n++;
   }
 
-int CollectZones(const double &open[], const double &high[], const double &low[], const double &close[],
-                 const datetime &time[], const int total, SZone &zones[])
+int CollectZonesAsOf(const double &open[], const double &high[], const double &low[], const double &close[],
+                     const datetime &time[], const int total, const int asOf, SZone &zones[])
   {
    ArrayResize(zones, 0);
    SSwing sw[];
-   int sn = CollectSwings(high, low, time, total, 8, sw);
+   int sn = CollectSwingsAsOf(high, low, time, total, 8, asOf, sw);
    int n = 0;
    bool hasH = false;
    bool hasL = false;
@@ -1187,13 +1319,16 @@ int CollectZones(const double &open[], const double &high[], const double &low[]
         {
          if(waitBear)
            {
-            PushZone(zones, n, sw[i].shift, high[sw[i].shift], low[sw[i].shift], -1, 0, sw[i].shift - 8);
+            int born = sw[i].shift - 8;
+            if(born < asOf)
+               born = asOf;
+            PushZone(zones, n, sw[i].shift, high[sw[i].shift], low[sw[i].shift], -1, 0, born);
             waitBear = false;
            }
          if(hasH && sw[i].price > lastH && lastHs > 0)
            {
             int br = -1;
-            for(int k = lastHs - 1; k >= sw[i].shift && k >= 0; k--)
+            for(int k = lastHs - 1; k >= sw[i].shift && k >= asOf; k--)
               {
                if(close[k] > lastH)
                  {
@@ -1201,11 +1336,11 @@ int CollectZones(const double &open[], const double &high[], const double &low[]
                   break;
                  }
               }
-            if(br >= 0)
+            if(br >= 0 && br >= asOf)
               {
                int fromOb = (lastLs >= 0 ? lastLs : br + 1);
                int ob = LastOppBar(open, close, fromOb, br, true);
-               if(ob >= 0)
+               if(ob >= 0 && ob >= asOf)
                   PushZone(zones, n, ob, high[ob], low[ob], 1, 1, br);
                waitBull = true;
                waitBear = false;
@@ -1219,13 +1354,16 @@ int CollectZones(const double &open[], const double &high[], const double &low[]
         {
          if(waitBull)
            {
-            PushZone(zones, n, sw[i].shift, high[sw[i].shift], low[sw[i].shift], 1, 0, sw[i].shift - 8);
+            int born = sw[i].shift - 8;
+            if(born < asOf)
+               born = asOf;
+            PushZone(zones, n, sw[i].shift, high[sw[i].shift], low[sw[i].shift], 1, 0, born);
             waitBull = false;
            }
          if(hasL && sw[i].price < lastL && lastLs > 0)
            {
             int br = -1;
-            for(int k = lastLs - 1; k >= sw[i].shift && k >= 0; k--)
+            for(int k = lastLs - 1; k >= sw[i].shift && k >= asOf; k--)
               {
                if(close[k] < lastL)
                  {
@@ -1233,11 +1371,11 @@ int CollectZones(const double &open[], const double &high[], const double &low[]
                   break;
                  }
               }
-            if(br >= 0)
+            if(br >= 0 && br >= asOf)
               {
                int fromOb = (lastHs >= 0 ? lastHs : br + 1);
                int ob = LastOppBar(open, close, fromOb, br, false);
-               if(ob >= 0)
+               if(ob >= 0 && ob >= asOf)
                   PushZone(zones, n, ob, high[ob], low[ob], -1, 1, br);
                waitBear = true;
                waitBull = false;
@@ -1251,10 +1389,16 @@ int CollectZones(const double &open[], const double &high[], const double &low[]
    return n;
   }
 
+int CollectZones(const double &open[], const double &high[], const double &low[], const double &close[],
+                 const datetime &time[], const int total, SZone &zones[])
+  {
+   return CollectZonesAsOf(open, high, low, close, time, total, 0, zones);
+  }
+
 int TrendAt(const double &high[], const double &low[], const datetime &time[], const int total, const int signalShift)
   {
    SSwing sw[];
-   int n = CollectSwings(high, low, time, total, 8, sw);
+   int n = CollectSwingsAsOf(high, low, time, total, 8, signalShift, sw);
    int trend = 0;
    bool hasH = false;
    bool hasL = false;
@@ -1319,29 +1463,81 @@ bool HigherAllows(const int dir)
    return true;
   }
 
+// Дальний тейк: не «чуть дальше 1:1», а рынок.
+// 1) ближайшая ПРОТИВОПОЛОЖНАЯ зона (OB) не ближе FarMinR;
+// 2) иначе значимый свинг не ближе FarMinR;
+// 3) иначе жёстко entry ± FarMinR (по умолчанию 1:2).
 double FarTarget(const double &high[], const double &low[], const datetime &time[], const int total,
-                 const int signalShift, const int dir, const double entry, const double tp1, const double risk)
+                 const int signalShift, const int dir, const double entry, const double tp1, const double risk,
+                 const SZone &zones[], const int zn, const bool liveUpdate)
   {
-   SSwing sw[];
-   int n = CollectSwings(high, low, time, total, 8, sw);
-   double cap = (dir > 0 ? entry + risk * 5.0 : entry - risk * 5.0);
-   double fallback = (dir > 0 ? entry + risk * 2.0 : entry - risk * 2.0);
+   if(risk <= 0.0)
+      return tp1;
+   double minR = InpFarMinR;
+   if(minR < 1.25)
+      minR = 1.25;
+   double maxR = InpFarMaxR;
+   if(maxR < minR)
+      maxR = minR;
+   double floorPx = (dir > 0 ? entry + minR * risk : entry - minR * risk);
+   if(dir > 0 && floorPx < tp1 + 0.5 * risk)
+      floorPx = tp1 + 0.5 * risk;
+   if(dir < 0 && floorPx > tp1 - 0.5 * risk)
+      floorPx = tp1 - 0.5 * risk;
+   double cap = (dir > 0 ? entry + maxR * risk : entry - maxR * risk);
    double best = 0.0;
    bool found = false;
+
+   for(int z = 0; z < zn; z++)
+     {
+      if(zones[z].dir == dir)
+         continue;
+      if(!liveUpdate && zones[z].shift <= signalShift)
+         continue;
+      double edge = (dir > 0 ? zones[z].bot : zones[z].top);
+      if(dir > 0)
+        {
+         if(edge < floorPx || edge > cap)
+            continue;
+         if(!found || edge < best)
+           {
+            best = edge;
+            found = true;
+           }
+        }
+      else
+        {
+         if(edge > floorPx || edge < cap)
+            continue;
+         if(!found || edge > best)
+           {
+            best = edge;
+            found = true;
+           }
+        }
+     }
+
+   int asOf = (liveUpdate ? 1 : signalShift);
+   SSwing sw[];
+   int n = CollectSwingsAsOf(high, low, time, total, 8, asOf, sw);
    for(int i = 0; i < n; i++)
      {
-      if(sw[i].shift < signalShift + 8)
+      if(!liveUpdate && sw[i].shift < signalShift + 8)
          continue;
-      if(dir > 0 && sw[i].type == 1 && sw[i].price > tp1 && sw[i].price <= cap)
+      if(dir > 0 && sw[i].type == 1)
         {
+         if(sw[i].price < floorPx || sw[i].price > cap)
+            continue;
          if(!found || sw[i].price < best)
            {
             best = sw[i].price;
             found = true;
            }
         }
-      if(dir < 0 && sw[i].type == -1 && sw[i].price < tp1 && sw[i].price >= cap)
+      if(dir < 0 && sw[i].type == -1)
         {
+         if(sw[i].price > floorPx || sw[i].price < cap)
+            continue;
          if(!found || sw[i].price > best)
            {
             best = sw[i].price;
@@ -1349,9 +1545,576 @@ double FarTarget(const double &high[], const double &low[], const datetime &time
            }
         }
      }
-   if(!found)
-      return fallback;
-   return best;
+
+   if(found)
+     {
+      // страховка: не ближе floor
+      if(dir > 0 && best < floorPx)
+         best = floorPx;
+      if(dir < 0 && best > floorPx)
+         best = floorPx;
+      return best;
+     }
+   return floorPx;
+  }
+
+void RefreshDynamicFarTargets(const double &open[], const double &high[], const double &low[],
+                              const double &close[], const datetime &time[], const int total)
+  {
+   if(!InpFarDynamic || g_frozenN <= 0)
+      return;
+   SZone zones[];
+   int zn = CollectZonesAsOf(open, high, low, close, time, total, 1, zones);
+   bool changed = false;
+   for(int i = 0; i < g_frozenN; i++)
+     {
+      if(!g_frozen[i].allow || g_frozen[i].done)
+         continue;
+      double risk = MathAbs(g_frozen[i].entry - g_frozen[i].sl);
+      if(risk <= 0.0)
+         continue;
+      double tp1 = g_frozen[i].tp1;
+      double neu = FarTarget(high, low, time, total, 1, g_frozen[i].dir, g_frozen[i].entry, tp1, risk, zones, zn, true);
+      // пересчёт, если старое значение почти на TP1 (история до правки)
+      double distOld = MathAbs(g_frozen[i].tp2 - tp1);
+      if(distOld < 0.45 * risk || MathAbs(neu - g_frozen[i].tp2) > _Point)
+        {
+         g_frozen[i].tp2 = neu;
+         changed = true;
+        }
+     }
+   if(changed)
+      SaveFrozen();
+  }
+
+bool ImpulseAgainst(const int dir, const int shift, const double &high[], const double &low[],
+                    const double &close[], const int total, const double atr)
+  {
+   if(atr <= 0.0 || InpImpulseBars < 2)
+      return false;
+   int older = shift + InpImpulseBars;
+   if(older >= total)
+      older = total - 1;
+   if(older <= shift)
+      return false;
+   if(dir < 0)
+     {
+      double rise = high[shift] - low[older];
+      if(rise >= InpImpulseATR * atr)
+         return true;
+      if(close[shift] - close[older] >= InpImpulseATR * atr)
+         return true;
+     }
+   if(dir > 0)
+     {
+      double drop = high[older] - low[shift];
+      if(drop >= InpImpulseATR * atr)
+         return true;
+      if(close[older] - close[shift] >= InpImpulseATR * atr)
+         return true;
+     }
+   return false;
+  }
+
+bool NewsBlocked(const datetime t)
+  {
+   if(!InpNewsFilter || InpNewsMins <= 0 || t <= 0)
+      return false;
+   MqlCalendarValue vals[];
+   datetime a = t - (datetime)(InpNewsMins * 60);
+   datetime b = t + (datetime)(InpNewsMins * 60);
+   ResetLastError();
+   int n = CalendarValueHistory(vals, a, b, NULL, NULL);
+   if(n <= 0)
+      return false;
+   for(int i = 0; i < n; i++)
+     {
+      MqlCalendarEvent ev;
+      if(!CalendarEventById(vals[i].event_id, ev))
+         continue;
+      if(ev.importance >= CALENDAR_IMPORTANCE_HIGH)
+         return true;
+     }
+   return false;
+  }
+
+double MinStopDistance(const double atr)
+  {
+   long spr = SymbolInfoInteger(_Symbol, SYMBOL_SPREAD);
+   if(spr < 1)
+      spr = 1;
+   double bySpr = InpMinStopSpr * (double)spr * _Point;
+   double byAtr = (InpMinStopATR > 0.0 && atr > 0.0 ? InpMinStopATR * atr : 0.0);
+   return MathMax(bySpr, byAtr);
+  }
+
+string CandleName(const int sdir)
+  {
+   if(sdir == 2)
+      return "зелёная SMC";
+   if(sdir == -2)
+      return "красная SMC";
+   if(sdir == 1)
+      return "голубая Velocity";
+   if(sdir == -1)
+      return "фиолетовая Velocity";
+   return "свеча";
+  }
+
+string FreezePath()
+  {
+   return "ASmart_signals_" + _Symbol + "_" + EnumToString(_Period) + ".csv";
+  }
+
+string JournalPath()
+  {
+   return "ASmart_journal_" + _Symbol + ".csv";
+  }
+
+int FindFrozen(const datetime t)
+  {
+   for(int i = 0; i < g_frozenN; i++)
+      if(g_frozen[i].t == t)
+         return i;
+   return -1;
+  }
+
+void SaveFrozen()
+  {
+   if(!InpFreezeSig)
+      return;
+   int h = FileOpen(FreezePath(), FILE_WRITE | FILE_CSV | FILE_ANSI | FILE_COMMON);
+   if(h == INVALID_HANDLE)
+      return;
+   FileWrite(h, "time", "dir", "pct", "entry", "sl", "tp1", "tp2", "ext", "sdir", "allow", "resultR", "done", "comment");
+   for(int i = 0; i < g_frozenN; i++)
+     {
+      FileWrite(h,
+                IntegerToString((int)g_frozen[i].t),
+                IntegerToString(g_frozen[i].dir),
+                IntegerToString(g_frozen[i].pct),
+                DoubleToString(g_frozen[i].entry, _Digits),
+                DoubleToString(g_frozen[i].sl, _Digits),
+                DoubleToString(g_frozen[i].tp1, _Digits),
+                DoubleToString(g_frozen[i].tp2, _Digits),
+                IntegerToString(g_frozen[i].ext),
+                IntegerToString(g_frozen[i].sdir),
+                (g_frozen[i].allow ? "1" : "0"),
+                DoubleToString(g_frozen[i].resultR, 2),
+                (g_frozen[i].done ? "1" : "0"),
+                g_frozen[i].comment);
+     }
+   FileClose(h);
+  }
+
+void LoadFrozen()
+  {
+   g_frozenN = 0;
+   ArrayResize(g_frozen, 0);
+   if(!InpFreezeSig)
+     {
+      g_frozenLoaded = true;
+      return;
+     }
+   int h = FileOpen(FreezePath(), FILE_READ | FILE_CSV | FILE_ANSI | FILE_COMMON);
+   if(h == INVALID_HANDLE)
+     {
+      g_frozenLoaded = true;
+      return;
+     }
+   // пропуск заголовка (13 полей)
+   for(int c = 0; c < 13 && !FileIsEnding(h); c++)
+      FileReadString(h);
+   while(!FileIsEnding(h))
+     {
+      string ts = FileReadString(h);
+      if(FileIsEnding(h) && ts == "")
+         break;
+      if(ts == "time")
+         continue;
+      SFrozen f;
+      f.t = (datetime)StringToInteger(ts);
+      f.dir = (int)StringToInteger(FileReadString(h));
+      f.pct = (int)StringToInteger(FileReadString(h));
+      f.entry = StringToDouble(FileReadString(h));
+      f.sl = StringToDouble(FileReadString(h));
+      f.tp1 = StringToDouble(FileReadString(h));
+      f.tp2 = StringToDouble(FileReadString(h));
+      f.ext = (int)StringToInteger(FileReadString(h));
+      f.sdir = (int)StringToInteger(FileReadString(h));
+      f.allow = (FileReadString(h) == "1");
+      f.resultR = StringToDouble(FileReadString(h));
+      f.done = (FileReadString(h) == "1");
+      f.comment = FileReadString(h);
+      if(f.t > 0)
+        {
+         ArrayResize(g_frozen, g_frozenN + 1);
+         g_frozen[g_frozenN] = f;
+         g_frozenN++;
+        }
+     }
+   FileClose(h);
+   g_frozenLoaded = true;
+  }
+
+void AppendJournal(const SFrozen &f, const string event)
+  {
+   if(!InpJournal)
+      return;
+   bool fresh = !FileIsExist(JournalPath(), FILE_COMMON);
+   int h = FileOpen(JournalPath(), FILE_READ | FILE_WRITE | FILE_CSV | FILE_ANSI | FILE_COMMON);
+   if(h == INVALID_HANDLE)
+      return;
+   FileSeek(h, 0, SEEK_END);
+   if(fresh)
+      FileWrite(h, "event", "time", "symbol", "tf", "side", "block", "candle", "pct", "allow",
+                "entry", "sl", "tp1", "tp2", "resultR", "comment");
+   string tf = EnumToString(_Period);
+   StringReplace(tf, "PERIOD_", "");
+   FileWrite(h,
+             event,
+             TimeToString(f.t, TIME_DATE | TIME_MINUTES),
+             _Symbol,
+             tf,
+             (f.dir > 0 ? "BUY" : "SELL"),
+             (f.ext == 1 ? "OB-EXT" : "OB-IDM"),
+             CandleName(f.sdir),
+             IntegerToString(f.pct),
+             (f.allow ? "YES" : "NO"),
+             DoubleToString(f.entry, _Digits),
+             DoubleToString(f.sl, _Digits),
+             DoubleToString(f.tp1, _Digits),
+             DoubleToString(f.tp2, _Digits),
+             DoubleToString(f.resultR, 2),
+             f.comment);
+   FileClose(h);
+  }
+
+void UpdateFrozenResults(const double &high[], const double &low[], const datetime &time[], const int total)
+  {
+   bool changed = false;
+   for(int i = 0; i < g_frozenN; i++)
+     {
+      if(g_frozen[i].done || !g_frozen[i].allow)
+         continue;
+      int sh = iBarShift(_Symbol, _Period, g_frozen[i].t, true);
+      if(sh < 0 || sh >= total)
+         continue;
+      double risk = MathAbs(g_frozen[i].entry - g_frozen[i].sl);
+      if(risk <= 0.0)
+         continue;
+      for(int k = sh - 1; k >= 0; k--)
+        {
+         bool hitSl = false;
+         bool hitTp = false;
+         if(g_frozen[i].dir > 0)
+           {
+            if(low[k] <= g_frozen[i].sl)
+               hitSl = true;
+            if(high[k] >= g_frozen[i].tp1)
+               hitTp = true;
+           }
+         else
+           {
+            if(high[k] >= g_frozen[i].sl)
+               hitSl = true;
+            if(low[k] <= g_frozen[i].tp1)
+               hitTp = true;
+           }
+         if(hitSl && hitTp)
+           {
+            // консервативно: сначала стоп, если оба на одной свече
+            g_frozen[i].resultR = -1.0;
+            g_frozen[i].done = true;
+            changed = true;
+            AppendJournal(g_frozen[i], "CLOSE");
+            break;
+           }
+         if(hitSl)
+           {
+            g_frozen[i].resultR = -1.0;
+            g_frozen[i].done = true;
+            changed = true;
+            AppendJournal(g_frozen[i], "CLOSE");
+            break;
+           }
+         if(hitTp)
+           {
+            g_frozen[i].resultR = 1.0;
+            g_frozen[i].done = true;
+            changed = true;
+            AppendJournal(g_frozen[i], "CLOSE");
+            break;
+           }
+        }
+     }
+   if(changed)
+      SaveFrozen();
+  }
+
+void DrawFrozenSignal(const SFrozen &f, const double &high[], const double &low[], const datetime &time[], const int total)
+  {
+   if(!InpShowSignal)
+      return;
+   if(!f.allow && !InpShowReject)
+      return;
+   int sh = iBarShift(_Symbol, _Period, f.t, true);
+   if(sh < 0 || sh >= total)
+      return;
+   color col = (f.allow ? (f.dir > 0 ? InpSmcBull : InpSmcBear) : clrGray);
+   double pad = (high[sh] - low[sh]) * 0.15;
+   if(pad < 5.0 * _Point)
+      pad = 5.0 * _Point;
+   double arrowP = (f.dir > 0 ? low[sh] - pad : high[sh] + pad);
+   DrawArrow(f.t, arrowP, (f.dir > 0 ? 233 : 234), col);
+   string head = (f.allow ? "ОТКРЫВАТЬ" : "НЕ ОТКРЫВАТЬ");
+   string side = (f.dir > 0 ? "Покупка " : "Продажа ");
+   string txt = head + " | " + side + IntegerToString(f.pct) + "%";
+   DrawSigText(f.t, arrowP, txt, col, f.dir > 0);
+   double cpad = pad * 3.0;
+   double cY = (f.dir > 0 ? arrowP - cpad : arrowP + cpad);
+   DrawSigText(f.t, cY, f.comment, col, f.dir > 0);
+   if(!f.allow)
+      return;
+   datetime endT = time[0];
+   for(int k = sh - 1; k >= 0; k--)
+     {
+      bool hit = false;
+      if(f.dir > 0 && (low[k] <= f.sl || high[k] >= f.tp2))
+         hit = true;
+      if(f.dir < 0 && (high[k] >= f.sl || low[k] <= f.tp2))
+         hit = true;
+      if(hit)
+        {
+         endT = time[k];
+         break;
+        }
+     }
+   if(endT == time[0])
+      endT = time[0] + (datetime)(12 * PeriodSeconds(_Period));
+   DrawLevel("SL", f.t, endT, f.sl, clrFireBrick, "Стоп");
+   DrawLevel("TP", f.t, endT, f.tp1, clrDodgerBlue, "Тейк 1:1");
+   DrawLevel("TP2", f.t, endT, f.tp2, clrDarkOrange, "Дальний тейк");
+  }
+
+bool EvaluateSignalAt(const double &open[], const double &high[], const double &low[], const double &close[],
+                      const datetime &time[], const int total, const int i, SSig &out)
+  {
+   out.shift = i;
+   out.dir = 0;
+   out.pct = 0;
+   out.allow = false;
+   out.comment = "";
+   out.resultR = 0.0;
+   out.sdir = 0;
+   int sdir = SmartDir(open, high, low, close, total, i);
+   if(sdir == 0)
+      return false;
+   int dir = (sdir > 0 ? 1 : -1);
+   int trend = TrendAt(high, low, time, total, i);
+   SZone zones[];
+   int zn = CollectZonesAsOf(open, high, low, close, time, total, i, zones);
+   if(zn < 1)
+      return false;
+
+   int pick = -1;
+   for(int z = 0; z < zn; z++)
+     {
+      if(zones[z].dir != dir || zones[z].shift <= i || i > zones[z].born)
+         continue;
+      bool dead = false;
+      for(int k = zones[z].shift - 1; k > i; k--)
+        {
+         if(dir > 0 && close[k] < zones[z].bot)
+            dead = true;
+         if(dir < 0 && close[k] > zones[z].top)
+            dead = true;
+         if(dead)
+            break;
+        }
+      if(dead)
+         continue;
+      bool touch = (low[i] <= zones[z].top && high[i] >= zones[z].bot);
+      if(!touch)
+         continue;
+      if(dir > 0 && close[i] <= zones[z].bot)
+         continue;
+      if(dir < 0 && close[i] >= zones[z].top)
+         continue;
+      if(pick < 0 || zones[z].ext > zones[pick].ext || (zones[z].ext == zones[pick].ext && zones[z].shift < zones[pick].shift))
+         pick = z;
+     }
+   if(pick < 0)
+      return false;
+
+   double atr = ATRAt(high, low, close, total, i, 14);
+   double buf = 2.0 * _Point;
+   double entry = close[i];
+   double testEx = (dir > 0 ? low[i] : high[i]);
+   for(int k = i + 1; k < zones[pick].shift && k < i + 12; k++)
+     {
+      bool apart = (dir > 0 && low[k] > zones[pick].top) || (dir < 0 && high[k] < zones[pick].bot);
+      if(apart)
+         break;
+      if(dir > 0 && low[k] < testEx)
+         testEx = low[k];
+      if(dir < 0 && high[k] > testEx)
+         testEx = high[k];
+     }
+   double slStruct = (dir > 0 ? MathMin(zones[pick].bot, testEx) : MathMax(zones[pick].top, testEx));
+   slStruct += (dir > 0 ? -buf : buf);
+   double slCandle = (dir > 0 ? low[i] - buf : high[i] + buf);
+   double sl = slStruct;
+   double range = high[i] - low[i];
+   bool large = (atr > 0.0 && range >= atr * 1.5);
+   if(large)
+     {
+      bool candleOutside = (dir > 0 && slCandle <= zones[pick].bot) || (dir < 0 && slCandle >= zones[pick].top);
+      double dStruct = MathAbs(entry - slStruct);
+      double dCandle = MathAbs(entry - slCandle);
+      if(candleOutside && dStruct > dCandle * 1.5)
+         sl = slCandle;
+     }
+   if(dir > 0 && sl >= entry)
+      return false;
+   if(dir < 0 && sl <= entry)
+      return false;
+   double risk = MathAbs(entry - sl);
+   if(risk < 5.0 * _Point)
+      return false;
+
+   bool strong = (MathAbs(sdir) == 2);
+   int pct = 25;
+   if(strong && zones[pick].ext == 1)
+      pct = 100;
+   else if(strong || zones[pick].ext == 1)
+      pct = 50;
+
+   bool allow = true;
+   string why = "";
+   string whyNot = "";
+
+   // ChoCh / тренд против
+   bool trendOk = (trend == 0 || trend == dir);
+   bool chochAgainst = (trend != 0 && trend != dir);
+   if(chochAgainst)
+     {
+      allow = false;
+      whyNot += "ChoCh/тренд против; ";
+     }
+   else if(trendOk && trend == dir)
+      why += "тренд совпал; ";
+   else
+      why += "тренд flat; ";
+
+   // HTF: все старшие против — не открывать; иначе для 100% нужен HTF ок
+   bool htfOk = true;
+   if(i == 1)
+      htfOk = HigherAllows(dir);
+   if(!htfOk)
+     {
+      allow = false;
+      whyNot += "все HTF против; ";
+     }
+   else
+      why += "HTF ок; ";
+
+   // 100% только при полном совпадении тренда + HTF
+   if(pct == 100)
+     {
+      if(!(trend == dir && htfOk && !chochAgainst))
+        {
+         pct = 50;
+         why += "100%→50%: нет полного совпадения; ";
+        }
+      else
+         why += "полный набор для 100%; ";
+     }
+
+   // Импульс против OB-IDM
+   bool impulse = false;
+   if(zones[pick].ext == 0)
+     {
+      impulse = ImpulseAgainst(dir, i, high, low, close, total, atr);
+      if(impulse)
+        {
+         allow = false;
+         whyNot += "OB-IDM против импульсной ноги; ";
+        }
+      else
+         why += "импульса против нет; ";
+     }
+   else
+      why += "блок OB-EXT; ";
+
+   // Мин. стоп
+   double minRisk = MinStopDistance(atr);
+   if(risk < minRisk)
+     {
+      allow = false;
+      whyNot += "стоп < мин (" + DoubleToString(minRisk / _Point, 0) + " п); ";
+     }
+   else
+      why += "стоп достаточен; ";
+
+   // Новости
+   if(NewsBlocked(time[i]))
+     {
+      allow = false;
+      whyNot += "окно новостей; ";
+     }
+   else
+      why += "новости чисто; ";
+
+   double tp1 = (dir > 0 ? entry + risk : entry - risk);
+   double tp2 = FarTarget(high, low, time, total, i, dir, entry, tp1, risk, zones, zn, false);
+
+   string block = (zones[pick].ext == 1 ? "OB-EXT" : "OB-IDM");
+   string side = (dir > 0 ? "бычий" : "медвежий");
+   string head = (allow ? "ОТКРЫВАТЬ" : "НЕ ОТКРЫВАТЬ");
+   string comment = head
+                    + " | риск " + IntegerToString(pct) + "%"
+                    + " | " + side + " " + block
+                    + " | " + CandleName(sdir)
+                    + " | " + (allow ? why : whyNot + why);
+
+   out.dir = dir;
+   out.pct = pct;
+   out.entry = entry;
+   out.sl = sl;
+   out.tp1 = tp1;
+   out.tp2 = tp2;
+   out.t = time[i];
+   out.obT = time[zones[pick].shift];
+   out.ext = zones[pick].ext;
+   out.sdir = sdir;
+   out.allow = allow;
+   out.comment = comment;
+   out.resultR = 0.0;
+   return true;
+  }
+
+void LockSignal(const SSig &sig)
+  {
+   if(FindFrozen(sig.t) >= 0)
+      return;
+   ArrayResize(g_frozen, g_frozenN + 1);
+   g_frozen[g_frozenN].t = sig.t;
+   g_frozen[g_frozenN].dir = sig.dir;
+   g_frozen[g_frozenN].pct = sig.pct;
+   g_frozen[g_frozenN].entry = sig.entry;
+   g_frozen[g_frozenN].sl = sig.sl;
+   g_frozen[g_frozenN].tp1 = sig.tp1;
+   g_frozen[g_frozenN].tp2 = sig.tp2;
+   g_frozen[g_frozenN].ext = sig.ext;
+   g_frozen[g_frozenN].sdir = sig.sdir;
+   g_frozen[g_frozenN].allow = sig.allow;
+   g_frozen[g_frozenN].comment = sig.comment;
+   g_frozen[g_frozenN].resultR = 0.0;
+   g_frozen[g_frozenN].done = false;
+   g_frozenN++;
+   SaveFrozen();
+   AppendJournal(g_frozen[g_frozenN - 1], "SIGNAL");
   }
 
 void DrawSigText(const datetime t, const double p, const string text, const color c, const bool above)
@@ -1363,7 +2126,7 @@ void DrawSigText(const datetime t, const double p, const string text, const colo
       return;
    ObjectSetString(0, name, OBJPROP_TEXT, text);
    ObjectSetString(0, name, OBJPROP_FONT, "Arial");
-   ObjectSetInteger(0, name, OBJPROP_FONTSIZE, FontPx(InpTextSize) + 1);
+   ObjectSetInteger(0, name, OBJPROP_FONTSIZE, FontPx(InpTextSize));
    ObjectSetInteger(0, name, OBJPROP_COLOR, c);
    ObjectSetInteger(0, name, OBJPROP_ANCHOR, above ? ANCHOR_LEFT_LOWER : ANCHOR_LEFT_UPPER);
    ObjectSetInteger(0, name, OBJPROP_SELECTABLE, false);
@@ -1390,251 +2153,86 @@ void DrawLevel(const string tag, const datetime t1, const datetime t2, const dou
   }
 
 //+------------------------------------------------------------------+
-//| Сигнал входа по закрытой свече.                                   |
-//| Smart Point того же направления + тест OB-EXT или OB-IDM.        |
-//| Доля риска: 100 / 50 / 25 по таблице раздела 6. 75% в ней нет.   |
-//| TP1 = 1 к 1. Дальний TP2 — следующий свинг за TP1, иначе 2 к 1.  |
+//| Сигнал входа: только данные на закрытии бара, без будущего.      |
+//| Фиксация стрелок, фильтры, комментарий, журнал CSV.              |
 //+------------------------------------------------------------------+
 void BuildSignals(const double &open[], const double &high[], const double &low[], const double &close[],
                   const datetime &time[], const int total)
   {
-   if(!InpShowSignal && !InpAlertSignal)
+   if(!InpShowSignal && !InpAlertSignal && !InpJournal)
       return;
-   SZone zones[];
-   int zn = CollectZones(open, high, low, close, time, total, zones);
-   if(zn < 1)
-      return;
-   SSig sigs[];
-   int sn = 0;
-   int usedShift[];
-   int usedDir[];
-   int usedTry[];
-   int usedAt[];
-   double usedSl[];
-   int used = 0;
-   ArrayResize(usedShift, 0);
-   ArrayResize(usedDir, 0);
-   ArrayResize(usedTry, 0);
-   ArrayResize(usedAt, 0);
-   ArrayResize(usedSl, 0);
+   if(!g_frozenLoaded)
+      LoadFrozen();
 
-   for(int i = total - 20; i >= 1; i--)
+   // Первичное наполнение истории каузально (один раз, если файла ещё нет)
+   if(InpFreezeSig && g_frozenN == 0)
      {
-      int sdir = SmartDir(open, high, low, close, total, i);
-      if(sdir == 0)
-         continue;
-      int dir = (sdir > 0 ? 1 : -1);
-      int trend = TrendAt(high, low, time, total, i);
-      if(dir > 0 && trend < 0)
-         continue;
-      if(dir < 0 && trend > 0)
-         continue;
-      // Фильтр старших ТФ только для свечи, которая только что закрылась.
-      // Иначе сегодняшний тренд задним числом ставит стрелку на старую свечу.
-      if(i == 1 && !HigherAllows(dir))
-         continue;
-      int pick = -1;
-      for(int z = 0; z < zn; z++)
+      int start = total - 30;
+      if(start > 400)
+         start = 400;
+      for(int i = start; i >= 1; i--)
         {
-         if(zones[z].dir != dir || zones[z].shift <= i || i > zones[z].born)
+         SSig sig;
+         if(!EvaluateSignalAt(open, high, low, close, time, total, i, sig))
             continue;
-         bool dead = false;
-         for(int k = zones[z].shift - 1; k > i; k--)
-           {
-            if(dir > 0 && close[k] < zones[z].bot)
-               dead = true;
-            if(dir < 0 && close[k] > zones[z].top)
-               dead = true;
-            if(dead)
-               break;
-           }
-         if(dead)
+         if(FindFrozen(sig.t) >= 0)
             continue;
-         bool touch = (low[i] <= zones[z].top && high[i] >= zones[z].bot);
-         if(!touch)
+         if(!sig.allow && !InpShowReject)
             continue;
-         if(dir > 0 && close[i] <= zones[z].bot)
-            continue;
-         if(dir < 0 && close[i] >= zones[z].top)
-            continue;
-         if(pick < 0 || zones[z].ext > zones[pick].ext || (zones[z].ext == zones[pick].ext && zones[z].shift < zones[pick].shift))
-            pick = z;
+         LockSignal(sig);
         }
-      if(pick < 0)
-         continue;
-
-      int attempt = 1;
-      bool stopped = false;
-      double prevSl = 0.0;
-      int prevAt = i;
-      int slot = -1;
-      for(int u = 0; u < used; u++)
+     }
+   else if(InpFreezeSig)
+     {
+      // только только что закрывшийся бар
+      SSig sig;
+      if(EvaluateSignalAt(open, high, low, close, time, total, 1, sig))
         {
-         if(usedShift[u] == zones[pick].shift && usedDir[u] == dir)
-           {
-            slot = u;
-            attempt = usedTry[u] + 1;
-            prevSl = usedSl[u];
-            prevAt = usedAt[u];
-            break;
-           }
+         if(FindFrozen(sig.t) < 0 && (sig.allow || InpShowReject))
+            LockSignal(sig);
         }
-      if(attempt > 2)
-         continue;
-      if(attempt == 2)
+     }
+   else
+     {
+      // режим без фиксации: пересчёт только бара 1 (без перерисовки истории)
+      g_frozenN = 0;
+      ArrayResize(g_frozen, 0);
+      SSig sig;
+      if(EvaluateSignalAt(open, high, low, close, time, total, 1, sig))
         {
-         for(int k = prevAt - 1; k > i; k--)
-           {
-            if(dir > 0 && low[k] <= prevSl)
-               stopped = true;
-            if(dir < 0 && high[k] >= prevSl)
-               stopped = true;
-            if(stopped)
-               break;
-           }
-         bool sweep = false;
-         if(dir > 0 && low[i] < zones[pick].bot && close[i] > zones[pick].bot)
-            sweep = true;
-         if(dir < 0 && high[i] > zones[pick].top && close[i] < zones[pick].top)
-            sweep = true;
-         if(!stopped || !sweep)
-            continue;
+         if(sig.allow || InpShowReject)
+            LockSignal(sig);
         }
-
-      double atr = ATRAt(high, low, close, total, i, 14);
-      double buf = 2.0 * _Point;
-      double entry = close[i];
-      double testEx = (dir > 0 ? low[i] : high[i]);
-      for(int k = i + 1; k < zones[pick].shift && k < i + 12; k++)
-        {
-         bool apart = (dir > 0 && low[k] > zones[pick].top) || (dir < 0 && high[k] < zones[pick].bot);
-         if(apart)
-            break;
-         if(dir > 0 && low[k] < testEx)
-            testEx = low[k];
-         if(dir < 0 && high[k] > testEx)
-            testEx = high[k];
-        }
-      double slStruct = (dir > 0 ? MathMin(zones[pick].bot, testEx) : MathMax(zones[pick].top, testEx));
-      slStruct += (dir > 0 ? -buf : buf);
-      double slCandle = (dir > 0 ? low[i] - buf : high[i] + buf);
-      double sl = slStruct;
-      double range = high[i] - low[i];
-      bool large = (atr > 0.0 && range >= atr * 1.5);
-      if(large)
-        {
-         bool candleOutside = (dir > 0 && slCandle <= zones[pick].bot) || (dir < 0 && slCandle >= zones[pick].top);
-         double dStruct = MathAbs(entry - slStruct);
-         double dCandle = MathAbs(entry - slCandle);
-         if(candleOutside && dStruct > dCandle * 1.5)
-            sl = slCandle;
-        }
-      if(dir > 0 && sl >= entry)
-         continue;
-      if(dir < 0 && sl <= entry)
-         continue;
-      double risk = MathAbs(entry - sl);
-      if(risk < 5.0 * _Point)
-         continue;
-      double tp1 = (dir > 0 ? entry + risk : entry - risk);
-      double tp2 = FarTarget(high, low, time, total, i, dir, entry, tp1, risk);
-      bool strong = (MathAbs(sdir) == 2);
-      int pct = 25;
-      if(strong && zones[pick].ext == 1)
-         pct = 100;
-      else if(strong || zones[pick].ext == 1)
-         pct = 50;
-
-      if(slot < 0)
-        {
-         ArrayResize(usedShift, used + 1);
-         ArrayResize(usedDir, used + 1);
-         ArrayResize(usedTry, used + 1);
-         ArrayResize(usedAt, used + 1);
-         ArrayResize(usedSl, used + 1);
-         usedShift[used] = zones[pick].shift;
-         usedDir[used] = dir;
-         usedTry[used] = 1;
-         usedAt[used] = i;
-         usedSl[used] = sl;
-         used++;
-        }
-      else
-        {
-         usedTry[slot] = attempt;
-         usedAt[slot] = i;
-         usedSl[slot] = sl;
-        }
-
-      ArrayResize(sigs, sn + 1);
-      sigs[sn].shift = i;
-      sigs[sn].dir = dir;
-      sigs[sn].pct = pct;
-      sigs[sn].entry = entry;
-      sigs[sn].sl = sl;
-      sigs[sn].tp1 = tp1;
-      sigs[sn].tp2 = tp2;
-      sigs[sn].t = time[i];
-      sigs[sn].obT = time[zones[pick].shift];
-      sigs[sn].ext = zones[pick].ext;
-      sn++;
      }
 
-   int from = sn - 1;
-   if(from < 0)
-      from = 0;
-   for(int s = from; s < sn; s++)
-     {
-      if(!InpShowSignal)
-         break;
-      int dir = sigs[s].dir;
-      color col = (dir > 0 ? InpSmcBull : InpSmcBear);
-      double pad = (high[sigs[s].shift] - low[sigs[s].shift]) * 0.15;
-      if(pad < 5.0 * _Point)
-         pad = 5.0 * _Point;
-      double arrowP = (dir > 0 ? low[sigs[s].shift] - pad : high[sigs[s].shift] + pad);
-      DrawArrow(sigs[s].t, arrowP, (dir > 0 ? 233 : 234), col);
-      string side = (dir > 0 ? "Покупка " : "Продажа ");
-      string txt = side + IntegerToString(sigs[s].pct) + "%";
-      DrawSigText(sigs[s].t, arrowP, txt, col, dir > 0);
-      datetime endT = time[0];
-      for(int k = sigs[s].shift - 1; k >= 0; k--)
-        {
-         bool hit = false;
-         if(dir > 0 && (low[k] <= sigs[s].sl || high[k] >= sigs[s].tp2))
-            hit = true;
-         if(dir < 0 && (high[k] >= sigs[s].sl || low[k] <= sigs[s].tp2))
-            hit = true;
-         if(hit)
-           {
-            endT = time[k];
-            break;
-           }
-        }
-      if(s < sn - 1 && endT == time[0])
-         endT = sigs[s].t + (datetime)(48 * PeriodSeconds(_Period));
-      if(s == sn - 1 && endT == time[0])
-         endT = time[0] + (datetime)(12 * PeriodSeconds(_Period));
-      DrawLevel("SL", sigs[s].t, endT, sigs[s].sl, clrFireBrick, "Стоп");
-      DrawLevel("TP", sigs[s].t, endT, sigs[s].tp1, clrDodgerBlue, "Тейк 1:1");
-      DrawLevel("TP2", sigs[s].t, endT, sigs[s].tp2, clrDarkOrange, "Дальний тейк");
-     }
+   UpdateFrozenResults(high, low, time, total);
+   RefreshDynamicFarTargets(open, high, low, close, time, total);
 
-   if(InpAlertSignal && sn > 0 && sigs[sn - 1].shift == 1)
+   // рисуем только зафиксированные
+   int drawFrom = 0;
+   if(g_frozenN > 40)
+      drawFrom = g_frozenN - 40;
+   for(int i = drawFrom; i < g_frozenN; i++)
+      DrawFrozenSignal(g_frozen[i], high, low, time, total);
+
+   if(InpAlertSignal && g_frozenN > 0)
      {
-      SSig last = sigs[sn - 1];
-      string side = (last.dir > 0 ? "ПОКУПКА" : "ПРОДАЖА");
-      string block = (last.ext == 1 ? "OB-EXT" : "OB-IDM");
-      string tf = EnumToString(_Period);
-      StringReplace(tf, "PERIOD_", "");
-      string msg = side + " " + _Symbol + " " + tf
-                   + ". Риск " + IntegerToString(last.pct) + "% обычной сделки."
-                   + " Вход " + DoubleToString(last.entry, _Digits)
-                   + ", стоп " + DoubleToString(last.sl, _Digits)
-                   + ", тейк 1:1 " + DoubleToString(last.tp1, _Digits)
-                   + ", дальний тейк " + DoubleToString(last.tp2, _Digits)
-                   + ". Блок " + block + ". Свеча закрыта, стрелка на графике.";
-      Fire("SIG@" + IntegerToString((int)last.t), msg);
+      SFrozen last = g_frozen[g_frozenN - 1];
+      if(last.t == time[1])
+        {
+         string side = (last.dir > 0 ? "ПОКУПКА" : "ПРОДАЖА");
+         string act = (last.allow ? "ОТКРЫВАТЬ" : "НЕ ОТКРЫВАТЬ");
+         string block = (last.ext == 1 ? "OB-EXT" : "OB-IDM");
+         string tf = EnumToString(_Period);
+         StringReplace(tf, "PERIOD_", "");
+         string msg = act + ". " + side + " " + _Symbol + " " + tf
+                      + ". Риск " + IntegerToString(last.pct) + "%."
+                      + " Вход " + DoubleToString(last.entry, _Digits)
+                      + ", стоп " + DoubleToString(last.sl, _Digits)
+                      + ", тейк 1:1 " + DoubleToString(last.tp1, _Digits)
+                      + ". Блок " + block + ". " + last.comment;
+         Fire("SIG@" + IntegerToString((int)last.t), msg);
+        }
      }
   }
 
@@ -1962,6 +2560,7 @@ int OnInit()
    if(InpWickThr < 0.3 || InpWickThr > 0.5)
       Print("ASmart Tools: Shadow threshold вне 0.3..0.5, значение ограничено.");
    g_lastBar = 0;
+   g_frozenLoaded = false;
    return INIT_SUCCEEDED;
   }
 
@@ -1986,6 +2585,7 @@ int OnCalculate(const int rates_total,
      {
       g_lastBar = bar;
       Rebuild();
+      FadeAgedObjects(TL_PREFIX);
      }
    DrawLiveSmart();
    PaintCandles(rates_total);
@@ -2053,4 +2653,11 @@ void OnChartEvent(const int id, const long &lparam, const double &dparam, const 
 //   Список алертов POI — из главы ALERTS | POI. По умолчанию выключены.
 // - Preconfigured Input Preset: в окне видно только Default.
 //   Другие пресеты в PDF не названы.
+//
+// v1.05 — честный вход:
+// - зоны/свинги для сигнала Collect*AsOf(signalShift): без баров новее закрытой свечи;
+// - стрелки фиксируются в Common/Files и не переписываются;
+// - комментарий ОТКРЫВАТЬ/НЕ ОТКРЫВАТЬ у стрелки;
+// - фильтры: импульс vs OB-IDM, HTF, ChoCh, мин. стоп, новости;
+// - 100% только при полном совпадении; журнал CSV с resultR по TP1/SL.
 //+------------------------------------------------------------------+
